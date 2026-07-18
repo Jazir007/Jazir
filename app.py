@@ -190,7 +190,8 @@ def init_db():
     CREATE TABLE IF NOT EXISTS app_users (
       id INTEGER PRIMARY KEY AUTOINCREMENT, display_name TEXT NOT NULL, email TEXT NOT NULL UNIQUE COLLATE NOCASE,
       password_hash TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, is_admin INTEGER NOT NULL DEFAULT 0,
-      profession TEXT, industry TEXT, discovery_source TEXT, last_login_at TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      profession TEXT, industry TEXT, discovery_source TEXT, must_change_password INTEGER NOT NULL DEFAULT 0,
+      last_login_at TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     CREATE TABLE IF NOT EXISTS company_access (
       app_user_id INTEGER NOT NULL, company_id INTEGER NOT NULL, role TEXT NOT NULL DEFAULT 'Owner',
@@ -204,6 +205,11 @@ def init_db():
     );
     CREATE TABLE IF NOT EXISTS app_settings (
       id INTEGER PRIMARY KEY CHECK(id=1), user_limit INTEGER NOT NULL DEFAULT 10
+    );
+    CREATE TABLE IF NOT EXISTS app_notifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, recipient_user_id INTEGER, kind TEXT NOT NULL, message TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, read_at TEXT,
+      FOREIGN KEY(recipient_user_id) REFERENCES app_users(id) ON DELETE CASCADE
     );
     CREATE TABLE IF NOT EXISTS activity_log (
       id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL, user_name TEXT, activity TEXT NOT NULL, details TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -310,6 +316,8 @@ def init_db():
         for name in ("profession", "industry", "discovery_source"):
             if name not in app_user_columns:
                 connection.execute(f"ALTER TABLE app_users ADD COLUMN {name} TEXT")
+        if "must_change_password" not in app_user_columns:
+            connection.execute("ALTER TABLE app_users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0")
         if not connection.execute("SELECT 1 FROM app_users WHERE is_admin=1 LIMIT 1").fetchone():
             connection.execute("UPDATE app_users SET is_admin=1 WHERE id=(SELECT id FROM app_users ORDER BY id LIMIT 1)")
         connection.execute("INSERT OR IGNORE INTO app_settings(id,user_limit) VALUES(1,10)")
@@ -374,6 +382,18 @@ def signed_in_user():
 def app_user_limit():
     row = db().execute("SELECT user_limit FROM app_settings WHERE id=1").fetchone()
     return int(row["user_limit"]) if row else 10
+
+
+def notify_administrators(kind, message):
+    """Create one notification for every active ERP administrator."""
+    admins = db().execute("SELECT id FROM app_users WHERE active=1 AND is_admin=1").fetchall()
+    db().executemany("INSERT INTO app_notifications(recipient_user_id,kind,message) VALUES(?,?,?)", [(admin["id"], kind, message) for admin in admins])
+
+
+def notification_count(user):
+    if not user or not user["is_admin"]:
+        return 0
+    return db().execute("SELECT COUNT(*) FROM app_notifications WHERE recipient_user_id=? AND read_at IS NULL", (user["id"],)).fetchone()[0]
 
 
 def ensure_user_company_access(user):
@@ -584,6 +604,8 @@ def sign_up():
         user_limit = app_user_limit()
         active_users = db().execute("SELECT COUNT(*) FROM app_users WHERE active=1").fetchone()[0]
         if user_limit > 0 and active_users >= user_limit:
+            notify_administrators("User limit reached", "A new registration was blocked because the active-user limit of " + str(user_limit) + " has been reached.")
+            db().commit()
             flash("New registrations are currently unavailable because the user limit has been reached.", "error")
             return render_template("signup.html")
         name = request.form.get("display_name", "").strip()
@@ -606,6 +628,8 @@ def sign_up():
             session.permanent = True
             session["app_user_id"] = cursor.lastrowid
             ensure_user_company_access(signed_in_user())
+            notify_administrators("New user registered", name + " registered with " + email + ".")
+            db().commit()
             flash("Your Zedjer account is ready.", "success")
             return redirect(url_for("companies_dashboard"))
         except sqlite3.IntegrityError:
@@ -630,7 +654,7 @@ def sign_in():
             session.permanent = True
             session["app_user_id"] = user["id"]
             flash("Welcome back, " + user["display_name"] + ".", "success")
-            return redirect(url_for("companies_dashboard"))
+            return redirect(url_for("change_password") if user["must_change_password"] else url_for("companies_dashboard"))
         if not user:
             flash("User not registered. Please create an account first.", "error")
         else:
@@ -649,7 +673,7 @@ def admin_sign_in():
         if user and check_password_hash(user["password_hash"], password):
             db().execute("UPDATE app_users SET last_login_at=CURRENT_TIMESTAMP WHERE id=?", (user["id"],)); db().commit()
             session.clear(); session.permanent = True; session["app_user_id"] = user["id"]
-            return redirect(url_for("admin_users"))
+            return redirect(url_for("change_password") if user["must_change_password"] else url_for("admin_users"))
         flash("Administrator email or password is incorrect.", "error")
     return render_template("admin_signin.html")
 
@@ -665,9 +689,29 @@ def forgot_password():
             pending = db().execute("SELECT 1 FROM password_reset_requests WHERE app_user_id=? AND status='Pending'", (user["id"],)).fetchone()
             if not pending:
                 db().execute("INSERT INTO password_reset_requests(app_user_id) VALUES(?)", (user["id"],)); db().commit()
+                notify_administrators("Password reset request", user["display_name"] + " requested a password reset.")
+                db().commit()
             flash("Your password reset request has been sent to the ERP administrator.", "success")
             return redirect(url_for("sign_in"))
     return render_template("forgot_password.html")
+
+
+@app.route("/change-password", methods=["GET", "POST"])
+def change_password():
+    user = signed_in_user()
+    if not user:
+        return redirect(url_for("sign_in"))
+    if request.method == "POST":
+        password = request.form.get("password", "")
+        confirm_password = request.form.get("confirm_password", "")
+        if len(password) < 8 or password != confirm_password:
+            flash("Use a matching new password of at least 8 characters.", "error")
+        else:
+            db().execute("UPDATE app_users SET password_hash=?,must_change_password=0 WHERE id=?", (generate_password_hash(password), user["id"]))
+            db().commit()
+            flash("Your password has been changed.", "success")
+            return redirect(url_for("admin_users") if user["is_admin"] else url_for("companies_dashboard"))
+    return render_template("change_password.html", forced=bool(user["must_change_password"]))
 
 
 @app.before_request
@@ -678,6 +722,8 @@ def require_main_sign_in():
         return None
     if not signed_in_user():
         return redirect(url_for("sign_in"))
+    if signed_in_user()["must_change_password"] and request.endpoint not in {"change_password", "user_logout", "current_user_json"}:
+        return redirect(url_for("change_password"))
     return None
 
 
@@ -1191,7 +1237,19 @@ def admin_users():
         GROUP BY au.id ORDER BY au.is_admin DESC, au.display_name COLLATE NOCASE""").fetchall()
     reset_requests = db().execute("""SELECT pr.*,au.display_name,au.email FROM password_reset_requests pr
         JOIN app_users au ON au.id=pr.app_user_id WHERE pr.status='Pending' ORDER BY pr.requested_at""").fetchall()
-    return render_template("admin_users.html", users=users, reset_requests=reset_requests, user_limit=app_user_limit(), active_user_count=sum(1 for item in users if item["active"]))
+    return render_template("admin_users.html", users=users, reset_requests=reset_requests, user_limit=app_user_limit(), active_user_count=sum(1 for item in users if item["active"]), notification_count=notification_count(user))
+
+
+@app.route("/admin/notifications", methods=["GET", "POST"])
+def admin_notifications():
+    admin = signed_in_user()
+    if not admin or not admin["is_admin"]:
+        return redirect(url_for("sign_in"))
+    if request.method == "POST":
+        db().execute("UPDATE app_notifications SET read_at=CURRENT_TIMESTAMP WHERE recipient_user_id=? AND read_at IS NULL", (admin["id"],)); db().commit()
+        return redirect(url_for("admin_notifications"))
+    notifications = db().execute("SELECT * FROM app_notifications WHERE recipient_user_id=? ORDER BY id DESC LIMIT 250", (admin["id"],)).fetchall()
+    return render_template("admin_notifications.html", notifications=notifications, notification_count=notification_count(admin))
 
 
 @app.route("/admin/user-limit", methods=["POST"])
@@ -1223,8 +1281,9 @@ def admin_reset_password(user_id):
     if not user:
         flash("User was not found.", "error")
         return redirect(url_for("admin_users"))
-    db().execute("UPDATE app_users SET password_hash=? WHERE id=?", (generate_password_hash(password), user_id))
+    db().execute("UPDATE app_users SET password_hash=?,must_change_password=1 WHERE id=?", (generate_password_hash(password), user_id))
     db().execute("UPDATE password_reset_requests SET status='Completed' WHERE app_user_id=? AND status='Pending'", (user_id,))
+    notify_administrators("Password reset completed", "A temporary password was set for " + user["display_name"] + ".")
     db().commit()
     flash("Password updated for " + user["display_name"] + ".", "success")
     return redirect(url_for("admin_users"))

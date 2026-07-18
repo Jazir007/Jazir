@@ -1,0 +1,6 @@
+{% extends 'base.html' %}
+{% block heading %}Administrator notifications{% endblock %}
+{% block header_action %}<form method="post"><button class="secondary">Mark all as read</button></form>{% endblock %}
+{% block content %}
+<section class="panel"><div class="panel-title"><div><h2>Notifications{% if notification_count %} <span class="tag">{{ notification_count }} new</span>{% endif %}</h2><p class="hint">New registrations, password reset activity, and user-limit events.</p></div><a class="secondary" href="{{ url_for('admin_users') }}">Back to Administrator Desk</a></div>{% if notifications %}<div class="table-wrap"><table><thead><tr><th>Type</th><th>Details</th><th>Time</th><th>Status</th></tr></thead><tbody>{% for notification in notifications %}<tr><td><b>{{ notification.kind }}</b></td><td>{{ notification.message }}</td><td>{{ notification.created_at|datefmt }}</td><td>{% if notification.read_at %}Read{% else %}<span class="tag">New</span>{% endif %}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="hint">No notifications yet.</p>{% endif %}</section>
+{% endblock %}
