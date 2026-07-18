@@ -190,13 +190,17 @@ def init_db():
     CREATE TABLE IF NOT EXISTS app_users (
       id INTEGER PRIMARY KEY AUTOINCREMENT, display_name TEXT NOT NULL, email TEXT NOT NULL UNIQUE COLLATE NOCASE,
       password_hash TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, is_admin INTEGER NOT NULL DEFAULT 0,
-      last_login_at TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      profession TEXT, industry TEXT, discovery_source TEXT, last_login_at TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     CREATE TABLE IF NOT EXISTS company_access (
       app_user_id INTEGER NOT NULL, company_id INTEGER NOT NULL, role TEXT NOT NULL DEFAULT 'Owner',
       assigned_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(app_user_id,company_id),
       FOREIGN KEY(app_user_id) REFERENCES app_users(id) ON DELETE CASCADE,
       FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS password_reset_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, app_user_id INTEGER NOT NULL, requested_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      status TEXT NOT NULL DEFAULT 'Pending', FOREIGN KEY(app_user_id) REFERENCES app_users(id) ON DELETE CASCADE
     );
     CREATE TABLE IF NOT EXISTS activity_log (
       id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL, user_name TEXT, activity TEXT NOT NULL, details TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -300,6 +304,9 @@ def init_db():
             connection.execute("ALTER TABLE app_users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
         if "last_login_at" not in app_user_columns:
             connection.execute("ALTER TABLE app_users ADD COLUMN last_login_at TEXT")
+        for name in ("profession", "industry", "discovery_source"):
+            if name not in app_user_columns:
+                connection.execute(f"ALTER TABLE app_users ADD COLUMN {name} TEXT")
         if not connection.execute("SELECT 1 FROM app_users WHERE is_admin=1 LIMIT 1").fetchone():
             connection.execute("UPDATE app_users SET is_admin=1 WHERE id=(SELECT id FROM app_users ORDER BY id LIMIT 1)")
         connection.execute("""INSERT OR IGNORE INTO company_access(app_user_id,company_id,role)
@@ -388,8 +395,6 @@ def company_required():
         session.pop("company_id", None); session.pop("username", None); session.pop("user_role", None)
         flash("You do not have access to that company.", "error")
         return None
-    if not company:
-        flash("Select a company first.", "error")
     return company
 
 
@@ -569,15 +574,18 @@ def sign_up():
     if request.method == "POST":
         name = request.form.get("display_name", "").strip()
         email = request.form.get("email", "").strip().casefold()
+        profession = request.form.get("profession", "").strip()
+        industry = request.form.get("industry", "").strip()
+        discovery_source = request.form.get("discovery_source", "").strip()
         password = request.form.get("password", "")
         confirm_password = request.form.get("confirm_password", "")
         try:
-            if not name or "@" not in email or "." not in email.rsplit("@", 1)[-1] or len(password) < 8 or password != confirm_password:
+            if not name or not profession or not industry or not discovery_source or "@" not in email or "." not in email.rsplit("@", 1)[-1] or len(password) < 8 or password != confirm_password:
                 raise ValueError
             is_first_user = db().execute("SELECT COUNT(*) FROM app_users").fetchone()[0] == 0
             cursor = db().execute(
-                "INSERT INTO app_users(display_name,email,password_hash,is_admin,last_login_at) VALUES(?,?,?,?,CURRENT_TIMESTAMP)",
-                (name, email, generate_password_hash(password), int(is_first_user)),
+                "INSERT INTO app_users(display_name,email,password_hash,is_admin,profession,industry,discovery_source,last_login_at) VALUES(?,?,?,?,?,?,?,CURRENT_TIMESTAMP)",
+                (name, email, generate_password_hash(password), int(is_first_user), profession, industry, discovery_source),
             )
             db().commit()
             session.clear()
@@ -589,7 +597,7 @@ def sign_up():
         except sqlite3.IntegrityError:
             flash("An account already exists with this email address. Please sign in.", "error")
         except ValueError:
-            flash("Enter your name, a valid email, and a password of at least 8 characters. Passwords must match.", "error")
+            flash("Complete all setup details, use a valid email, and choose a password of at least 8 characters. Passwords must match.", "error")
     return render_template("signup.html")
 
 
@@ -616,10 +624,42 @@ def sign_in():
     return render_template("signin.html")
 
 
+@app.route("/admin/signin", methods=["GET", "POST"])
+def admin_sign_in():
+    if signed_in_user() and signed_in_user()["is_admin"]:
+        return redirect(url_for("admin_users"))
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().casefold()
+        password = request.form.get("password", "")
+        user = db().execute("SELECT * FROM app_users WHERE email=? COLLATE NOCASE AND active=1 AND is_admin=1", (email,)).fetchone()
+        if user and check_password_hash(user["password_hash"], password):
+            db().execute("UPDATE app_users SET last_login_at=CURRENT_TIMESTAMP WHERE id=?", (user["id"],)); db().commit()
+            session.clear(); session.permanent = True; session["app_user_id"] = user["id"]
+            return redirect(url_for("admin_users"))
+        flash("Administrator email or password is incorrect.", "error")
+    return render_template("admin_signin.html")
+
+
+@app.route("/forgot-password", methods=["GET", "POST"])
+def forgot_password():
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().casefold()
+        user = db().execute("SELECT * FROM app_users WHERE email=? COLLATE NOCASE AND active=1", (email,)).fetchone()
+        if not user:
+            flash("User not registered. Please create an account first.", "error")
+        else:
+            pending = db().execute("SELECT 1 FROM password_reset_requests WHERE app_user_id=? AND status='Pending'", (user["id"],)).fetchone()
+            if not pending:
+                db().execute("INSERT INTO password_reset_requests(app_user_id) VALUES(?)", (user["id"],)); db().commit()
+            flash("Your password reset request has been sent to the ERP administrator.", "success")
+            return redirect(url_for("sign_in"))
+    return render_template("forgot_password.html")
+
+
 @app.before_request
 def require_main_sign_in():
     """Keep every business workspace behind the main email/password sign-in."""
-    public_endpoints = {"dashboard", "sign_in", "sign_up", "service_worker", "static", "user_logout"}
+    public_endpoints = {"dashboard", "sign_in", "sign_up", "admin_sign_in", "forgot_password", "service_worker", "static", "user_logout"}
     if request.endpoint in public_endpoints or request.path.startswith("/static/"):
         return None
     if not signed_in_user():
@@ -1135,7 +1175,30 @@ def admin_users():
         FROM app_users au LEFT JOIN company_access ca ON ca.app_user_id=au.id
         LEFT JOIN companies c ON c.id=ca.company_id AND c.name <> 'Imported company'
         GROUP BY au.id ORDER BY au.is_admin DESC, au.display_name COLLATE NOCASE""").fetchall()
-    return render_template("admin_users.html", users=users)
+    reset_requests = db().execute("""SELECT pr.*,au.display_name,au.email FROM password_reset_requests pr
+        JOIN app_users au ON au.id=pr.app_user_id WHERE pr.status='Pending' ORDER BY pr.requested_at""").fetchall()
+    return render_template("admin_users.html", users=users, reset_requests=reset_requests)
+
+
+@app.route("/admin/users/<int:user_id>/reset-password", methods=["POST"])
+def admin_reset_password(user_id):
+    admin = signed_in_user()
+    if not admin or not admin["is_admin"]:
+        return redirect(url_for("sign_in"))
+    password = request.form.get("password", "")
+    confirm_password = request.form.get("confirm_password", "")
+    if len(password) < 8 or password != confirm_password:
+        flash("Use a matching new password of at least 8 characters.", "error")
+        return redirect(url_for("admin_users"))
+    user = db().execute("SELECT * FROM app_users WHERE id=?", (user_id,)).fetchone()
+    if not user:
+        flash("User was not found.", "error")
+        return redirect(url_for("admin_users"))
+    db().execute("UPDATE app_users SET password_hash=? WHERE id=?", (generate_password_hash(password), user_id))
+    db().execute("UPDATE password_reset_requests SET status='Completed' WHERE app_user_id=? AND status='Pending'", (user_id,))
+    db().commit()
+    flash("Password updated for " + user["display_name"] + ".", "success")
+    return redirect(url_for("admin_users"))
 
 
 @app.route("/companies/select", methods=["POST"])
