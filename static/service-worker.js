@@ -1,5 +1,5 @@
-const CACHE='zedjer-shell-v3';
-const SHELL=['/','/static/style.css','/static/app.js','/static/manifest.webmanifest','/static/ledger-icon.svg','/static/images/zedjer-zj.png'];
+const CACHE='zedjer-shell-v4';
+const SHELL=['/','/static/style.css','/static/app.js','/static/manifest.webmanifest','/static/images/zedjer-zj.png','/static/zedjer-books-logo.png'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(SHELL)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key!==CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',event=>{
