@@ -202,6 +202,9 @@ def init_db():
       id INTEGER PRIMARY KEY AUTOINCREMENT, app_user_id INTEGER NOT NULL, requested_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       status TEXT NOT NULL DEFAULT 'Pending', FOREIGN KEY(app_user_id) REFERENCES app_users(id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS app_settings (
+      id INTEGER PRIMARY KEY CHECK(id=1), user_limit INTEGER NOT NULL DEFAULT 10
+    );
     CREATE TABLE IF NOT EXISTS activity_log (
       id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL, user_name TEXT, activity TEXT NOT NULL, details TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE
@@ -309,6 +312,7 @@ def init_db():
                 connection.execute(f"ALTER TABLE app_users ADD COLUMN {name} TEXT")
         if not connection.execute("SELECT 1 FROM app_users WHERE is_admin=1 LIMIT 1").fetchone():
             connection.execute("UPDATE app_users SET is_admin=1 WHERE id=(SELECT id FROM app_users ORDER BY id LIMIT 1)")
+        connection.execute("INSERT OR IGNORE INTO app_settings(id,user_limit) VALUES(1,10)")
         connection.execute("""INSERT OR IGNORE INTO company_access(app_user_id,company_id,role)
             SELECT au.id,cu.company_id,COALESCE(cu.role,'Accountant') FROM app_users au
             JOIN company_users cu ON lower(trim(cu.email))=lower(trim(au.email)) WHERE cu.active=1""")
@@ -365,6 +369,11 @@ def signed_in_user():
     if not user_id:
         return None
     return db().execute("SELECT * FROM app_users WHERE id=? AND active=1", (user_id,)).fetchone()
+
+
+def app_user_limit():
+    row = db().execute("SELECT user_limit FROM app_settings WHERE id=1").fetchone()
+    return int(row["user_limit"]) if row else 10
 
 
 def ensure_user_company_access(user):
@@ -559,7 +568,7 @@ def movements(company_id, start, end):
 @app.context_processor
 def global_values():
     company = active_company()
-    return {"active_company": company, "companies": visible_companies(), "currencies": currency_list(company), "base_currency": company["base_currency"] if company else "", "today": date.today().isoformat(), "today_iso": date.today().isoformat()}
+    return {"active_company": company, "companies": visible_companies(), "currencies": currency_list(company), "base_currency": company["base_currency"] if company else "", "today": date.today().isoformat(), "today_iso": date.today().isoformat(), "current_app_user": signed_in_user()}
 
 
 @app.route("/")
@@ -572,6 +581,11 @@ def sign_up():
     if signed_in_user():
         return redirect(url_for("companies_dashboard"))
     if request.method == "POST":
+        user_limit = app_user_limit()
+        active_users = db().execute("SELECT COUNT(*) FROM app_users WHERE active=1").fetchone()[0]
+        if user_limit > 0 and active_users >= user_limit:
+            flash("New registrations are currently unavailable because the user limit has been reached.", "error")
+            return render_template("signup.html")
         name = request.form.get("display_name", "").strip()
         email = request.form.get("email", "").strip().casefold()
         profession = request.form.get("profession", "").strip()
@@ -1177,7 +1191,22 @@ def admin_users():
         GROUP BY au.id ORDER BY au.is_admin DESC, au.display_name COLLATE NOCASE""").fetchall()
     reset_requests = db().execute("""SELECT pr.*,au.display_name,au.email FROM password_reset_requests pr
         JOIN app_users au ON au.id=pr.app_user_id WHERE pr.status='Pending' ORDER BY pr.requested_at""").fetchall()
-    return render_template("admin_users.html", users=users, reset_requests=reset_requests)
+    return render_template("admin_users.html", users=users, reset_requests=reset_requests, user_limit=app_user_limit(), active_user_count=sum(1 for item in users if item["active"]))
+
+
+@app.route("/admin/user-limit", methods=["POST"])
+def admin_user_limit():
+    admin = signed_in_user()
+    if not admin or not admin["is_admin"]:
+        return redirect(url_for("sign_in"))
+    try:
+        limit = int(request.form.get("user_limit", "0"))
+        if limit < 0: raise ValueError
+        db().execute("UPDATE app_settings SET user_limit=? WHERE id=1", (limit,)); db().commit()
+        flash("User limit updated. Use 0 for no limit.", "success")
+    except ValueError:
+        flash("Enter a whole number of 0 or more.", "error")
+    return redirect(url_for("admin_users"))
 
 
 @app.route("/admin/users/<int:user_id>/reset-password", methods=["POST"])
@@ -1198,6 +1227,24 @@ def admin_reset_password(user_id):
     db().execute("UPDATE password_reset_requests SET status='Completed' WHERE app_user_id=? AND status='Pending'", (user_id,))
     db().commit()
     flash("Password updated for " + user["display_name"] + ".", "success")
+    return redirect(url_for("admin_users"))
+
+
+@app.route("/admin/users/<int:user_id>/delete", methods=["POST"])
+def admin_delete_user(user_id):
+    admin = signed_in_user()
+    if not admin or not admin["is_admin"]:
+        return redirect(url_for("sign_in"))
+    user = db().execute("SELECT * FROM app_users WHERE id=?", (user_id,)).fetchone()
+    if not user:
+        flash("User was not found.", "error")
+    elif user["id"] == admin["id"]:
+        flash("You cannot delete the account currently used as administrator.", "error")
+    elif user["is_admin"] and db().execute("SELECT COUNT(*) FROM app_users WHERE is_admin=1 AND active=1").fetchone()[0] <= 1:
+        flash("Keep at least one active administrator account.", "error")
+    else:
+        db().execute("DELETE FROM app_users WHERE id=?", (user_id,)); db().commit()
+        flash("User deleted. Company accounting records were kept unchanged.", "success")
     return redirect(url_for("admin_users"))
 
 
