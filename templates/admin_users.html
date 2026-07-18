@@ -1,0 +1,5 @@
+{% extends 'base.html' %}
+{% block heading %}Administrator desk{% endblock %}
+{% block content %}
+<section class="panel"><div class="panel-title"><div><h2>Registered Zedjer users</h2><p class="hint">User passwords are never displayed. Each user can open only the companies assigned to their account.</p></div></div><div class="table-wrap"><table><thead><tr><th>User</th><th>Email</th><th>Access</th><th>Last sign-in</th><th>Registered</th></tr></thead><tbody>{% for user in users %}<tr><td><b>{{ user.display_name }}</b>{% if user.is_admin %}<span class="tag">Administrator</span>{% endif %}</td><td>{{ user.email }}</td><td>{{ user.company_names }}</td><td>{{ user.last_login_at|datefmt if user.last_login_at else 'Not yet signed in' }}</td><td>{{ user.created_at|datefmt }}</td></tr>{% endfor %}</tbody></table></div></section>
+{% endblock %}

@@ -56,6 +56,14 @@ document.addEventListener('DOMContentLoaded', () => {
       const initial = String(user.name || 'U').trim().charAt(0).toUpperCase();
       chip.innerHTML = `<span>${initial}</span><div><b>${user.name}</b><small>${user.role}</small></div>`;
       tools.append(chip);
+      if (user.is_admin) {
+        const nav = document.querySelector('aside nav');
+        if (nav && !nav.querySelector('[href="/admin/users"]')) {
+          const adminLink = document.createElement('a'); adminLink.href = '/admin/users'; adminLink.textContent = 'Administrator Desk';
+          if (location.pathname === '/admin/users') adminLink.classList.add('active');
+          nav.append(adminLink);
+        }
+      }
     }).catch(() => {});
   }
   // The navigation is intentionally created here so it stays available on every

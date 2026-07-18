@@ -189,7 +189,14 @@ def init_db():
     );
     CREATE TABLE IF NOT EXISTS app_users (
       id INTEGER PRIMARY KEY AUTOINCREMENT, display_name TEXT NOT NULL, email TEXT NOT NULL UNIQUE COLLATE NOCASE,
-      password_hash TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      password_hash TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, is_admin INTEGER NOT NULL DEFAULT 0,
+      last_login_at TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS company_access (
+      app_user_id INTEGER NOT NULL, company_id INTEGER NOT NULL, role TEXT NOT NULL DEFAULT 'Owner',
+      assigned_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(app_user_id,company_id),
+      FOREIGN KEY(app_user_id) REFERENCES app_users(id) ON DELETE CASCADE,
+      FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE
     );
     CREATE TABLE IF NOT EXISTS activity_log (
       id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL, user_name TEXT, activity TEXT NOT NULL, details TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -288,6 +295,16 @@ def init_db():
         user_columns = [row[1] for row in connection.execute("PRAGMA table_info(company_users)")]
         for name, definition in (("contact_no", "TEXT"), ("email", "TEXT"), ("password_hash", "TEXT")):
             if name not in user_columns: connection.execute(f"ALTER TABLE company_users ADD COLUMN {name} {definition}")
+        app_user_columns = [row[1] for row in connection.execute("PRAGMA table_info(app_users)")]
+        if "is_admin" not in app_user_columns:
+            connection.execute("ALTER TABLE app_users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
+        if "last_login_at" not in app_user_columns:
+            connection.execute("ALTER TABLE app_users ADD COLUMN last_login_at TEXT")
+        if not connection.execute("SELECT 1 FROM app_users WHERE is_admin=1 LIMIT 1").fetchone():
+            connection.execute("UPDATE app_users SET is_admin=1 WHERE id=(SELECT id FROM app_users ORDER BY id LIMIT 1)")
+        connection.execute("""INSERT OR IGNORE INTO company_access(app_user_id,company_id,role)
+            SELECT au.id,cu.company_id,COALESCE(cu.role,'Accountant') FROM app_users au
+            JOIN company_users cu ON lower(trim(cu.email))=lower(trim(au.email)) WHERE cu.active=1""")
         activity_columns = [row[1] for row in connection.execute("PRAGMA table_info(activity_log)")]
         if "user_name" not in activity_columns:
             connection.execute("ALTER TABLE activity_log ADD COLUMN user_name TEXT")
@@ -313,7 +330,13 @@ def init_db():
 
 
 def visible_companies():
-    return db().execute("SELECT * FROM companies WHERE name <> 'Imported company' ORDER BY name").fetchall()
+    user = signed_in_user()
+    if not user:
+        return []
+    ensure_user_company_access(user)
+    return db().execute("""SELECT c.* FROM companies c
+        JOIN company_access ca ON ca.company_id=c.id
+        WHERE ca.app_user_id=? AND c.name <> 'Imported company' ORDER BY c.name""", (user["id"],)).fetchall()
 
 
 def currency_list(company):
@@ -337,11 +360,34 @@ def signed_in_user():
     return db().execute("SELECT * FROM app_users WHERE id=? AND active=1", (user_id,)).fetchone()
 
 
+def ensure_user_company_access(user):
+    """Migrate matching legacy company users and give the first app owner their existing records."""
+    connection = db()
+    connection.execute("""INSERT OR IGNORE INTO company_access(app_user_id,company_id,role)
+        SELECT ?,cu.company_id,COALESCE(cu.role,'Accountant') FROM company_users cu
+        WHERE lower(trim(cu.email))=lower(trim(?)) AND cu.active=1""", (user["id"], user["email"]))
+    has_access = connection.execute("SELECT 1 FROM company_access WHERE app_user_id=?", (user["id"],)).fetchone()
+    user_count = connection.execute("SELECT COUNT(*) FROM app_users").fetchone()[0]
+    if not has_access and user_count == 1:
+        connection.execute("INSERT OR IGNORE INTO company_access(app_user_id,company_id,role) SELECT ?,id,'Owner' FROM companies WHERE name <> 'Imported company'", (user["id"],))
+    connection.commit()
+
+
+def user_company_access(user, company_id):
+    ensure_user_company_access(user)
+    return db().execute("SELECT * FROM company_access WHERE app_user_id=? AND company_id=?", (user["id"], company_id)).fetchone()
+
+
 def company_required():
-    if not signed_in_user():
+    user = signed_in_user()
+    if not user:
         flash("Please sign in to continue.", "error")
         return None
     company = active_company()
+    if company and not user_company_access(user, company["id"]):
+        session.pop("company_id", None); session.pop("username", None); session.pop("user_role", None)
+        flash("You do not have access to that company.", "error")
+        return None
     if not company:
         flash("Select a company first.", "error")
     return company
@@ -528,14 +574,16 @@ def sign_up():
         try:
             if not name or "@" not in email or "." not in email.rsplit("@", 1)[-1] or len(password) < 8 or password != confirm_password:
                 raise ValueError
+            is_first_user = db().execute("SELECT COUNT(*) FROM app_users").fetchone()[0] == 0
             cursor = db().execute(
-                "INSERT INTO app_users(display_name,email,password_hash) VALUES(?,?,?)",
-                (name, email, generate_password_hash(password)),
+                "INSERT INTO app_users(display_name,email,password_hash,is_admin,last_login_at) VALUES(?,?,?,?,CURRENT_TIMESTAMP)",
+                (name, email, generate_password_hash(password), int(is_first_user)),
             )
             db().commit()
             session.clear()
             session.permanent = True
             session["app_user_id"] = cursor.lastrowid
+            ensure_user_company_access(signed_in_user())
             flash("Your Zedjer account is ready.", "success")
             return redirect(url_for("companies_dashboard"))
         except sqlite3.IntegrityError:
@@ -554,6 +602,8 @@ def sign_in():
         password = request.form.get("password", "")
         user = db().execute("SELECT * FROM app_users WHERE email=? COLLATE NOCASE AND active=1", (email,)).fetchone()
         if user and check_password_hash(user["password_hash"], password):
+            db().execute("UPDATE app_users SET last_login_at=CURRENT_TIMESTAMP WHERE id=?", (user["id"],))
+            db().commit()
             session.clear()
             session.permanent = True
             session["app_user_id"] = user["id"]
@@ -599,6 +649,7 @@ def company_new():
             app_user = signed_in_user()
             if app_user:
                 connection.execute("INSERT OR IGNORE INTO company_users(company_id,username,email,role,active) VALUES(?,?,?,?,1)", (company.lastrowid, app_user["display_name"], app_user["email"], "Owner"))
+                connection.execute("INSERT OR IGNORE INTO company_access(app_user_id,company_id,role) VALUES(?,?,?)", (app_user["id"], company.lastrowid, "Owner"))
             connection.commit(); session["company_id"] = company.lastrowid
             flash("Company created. You can now record its transactions.", "success")
             return redirect(url_for("companies_dashboard"))
@@ -1071,7 +1122,20 @@ def current_user_json():
     user = signed_in_user()
     if not user:
         return {"name": "", "role": ""}, 401
-    return {"name": user["display_name"], "role": session.get("user_role", "Zedjer user")}
+    return {"name": user["display_name"], "role": session.get("user_role", "Zedjer user"), "is_admin": bool(user["is_admin"])}
+
+
+@app.route("/admin/users")
+def admin_users():
+    user = signed_in_user()
+    if not user or not user["is_admin"]:
+        flash("Administrator access is required.", "error")
+        return redirect(url_for("companies_dashboard"))
+    users = db().execute("""SELECT au.*, COALESCE(GROUP_CONCAT(c.name, ' · '),'No companies assigned') AS company_names
+        FROM app_users au LEFT JOIN company_access ca ON ca.app_user_id=au.id
+        LEFT JOIN companies c ON c.id=ca.company_id AND c.name <> 'Imported company'
+        GROUP BY au.id ORDER BY au.is_admin DESC, au.display_name COLLATE NOCASE""").fetchall()
+    return render_template("admin_users.html", users=users)
 
 
 @app.route("/companies/select", methods=["POST"])
@@ -1082,30 +1146,14 @@ def select_company():
     company = db().execute("SELECT * FROM companies WHERE id=? AND name <> 'Imported company'", (company_id,)).fetchone()
     if company:
         app_user = signed_in_user()
-        if company["auth_enabled"] and db().execute("SELECT 1 FROM company_users WHERE company_id=? AND active=1", (company_id,)).fetchone():
-            company_user = db().execute("SELECT * FROM company_users WHERE company_id=? AND email=? COLLATE NOCASE AND active=1", (company_id, app_user["email"])).fetchone()
-            # Smooth migration from the former company-only logins: the first
-            # main Zedjer account, or the email saved in the company profile,
-            # may claim the existing Owner record once.
-            is_first_zedjer_user = db().execute("SELECT COUNT(*) FROM app_users").fetchone()[0] == 1
-            is_company_email = (company["email"] or "").strip().casefold() == app_user["email"].casefold()
-            if not company_user and (is_first_zedjer_user or is_company_email):
-                owner = db().execute("SELECT * FROM company_users WHERE company_id=? AND role='Owner' AND active=1 ORDER BY id LIMIT 1", (company_id,)).fetchone()
-                if owner:
-                    db().execute("UPDATE company_users SET email=? WHERE id=?", (app_user["email"], owner["id"]))
-                else:
-                    db().execute("INSERT INTO company_users(company_id,username,email,role,active) VALUES(?,?,?,?,1)", (company_id, app_user["display_name"], app_user["email"], "Owner"))
-                db().commit()
-                company_user = db().execute("SELECT * FROM company_users WHERE company_id=? AND email=? COLLATE NOCASE AND active=1", (company_id, app_user["email"])).fetchone()
-            if not company_user:
-                flash("This email is not authorised for the selected company.", "error")
-                return redirect(url_for("companies_dashboard"))
-            session["company_id"], session["username"], session["user_role"] = company_id, company_user["username"], company_user["role"]
-            audit(company_id, "Company selected", f"Email sign-in: {app_user['email']}")
-            db().commit()
-            return redirect(url_for("analysis"))
+        access = user_company_access(app_user, company_id)
+        if not access:
+            flash("This account does not have access to the selected company.", "error")
+            return redirect(url_for("companies_dashboard"))
         session.permanent = True
-        session["company_id"], session["username"], session["user_role"] = company_id, app_user["display_name"], "Owner"
+        session["company_id"], session["username"], session["user_role"] = company_id, app_user["display_name"], access["role"]
+        audit(company_id, "Company selected", f"Email sign-in: {app_user['email']}")
+        db().commit()
         flash("Company selected.", "success")
     return redirect(url_for("analysis"))
 
