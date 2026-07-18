@@ -187,6 +187,10 @@ def init_db():
       id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL, username TEXT NOT NULL, contact_no TEXT, email TEXT, password_hash TEXT, role TEXT NOT NULL DEFAULT 'Accountant', active INTEGER NOT NULL DEFAULT 1,
       UNIQUE(company_id,username), FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS app_users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, display_name TEXT NOT NULL, email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      password_hash TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
     CREATE TABLE IF NOT EXISTS activity_log (
       id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL, user_name TEXT, activity TEXT NOT NULL, details TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE
@@ -325,7 +329,18 @@ def active_company():
     return db().execute("SELECT * FROM companies WHERE id=? AND name <> 'Imported company'", (company_id,)).fetchone()
 
 
+def signed_in_user():
+    """Return the main Zedjer user stored in this browser session."""
+    user_id = session.get("app_user_id")
+    if not user_id:
+        return None
+    return db().execute("SELECT * FROM app_users WHERE id=? AND active=1", (user_id,)).fetchone()
+
+
 def company_required():
+    if not signed_in_user():
+        flash("Please sign in to continue.", "error")
+        return None
     company = active_company()
     if not company:
         flash("Select a company first.", "error")
@@ -501,6 +516,67 @@ def dashboard():
     return render_template("opening.html")
 
 
+@app.route("/signup", methods=["GET", "POST"])
+def sign_up():
+    if signed_in_user():
+        return redirect(url_for("companies_dashboard"))
+    if request.method == "POST":
+        name = request.form.get("display_name", "").strip()
+        email = request.form.get("email", "").strip().casefold()
+        password = request.form.get("password", "")
+        confirm_password = request.form.get("confirm_password", "")
+        try:
+            if not name or "@" not in email or "." not in email.rsplit("@", 1)[-1] or len(password) < 8 or password != confirm_password:
+                raise ValueError
+            cursor = db().execute(
+                "INSERT INTO app_users(display_name,email,password_hash) VALUES(?,?,?)",
+                (name, email, generate_password_hash(password)),
+            )
+            db().commit()
+            session.clear()
+            session.permanent = True
+            session["app_user_id"] = cursor.lastrowid
+            flash("Your Zedjer account is ready.", "success")
+            return redirect(url_for("companies_dashboard"))
+        except sqlite3.IntegrityError:
+            flash("An account already exists with this email address. Please sign in.", "error")
+        except ValueError:
+            flash("Enter your name, a valid email, and a password of at least 8 characters. Passwords must match.", "error")
+    return render_template("signup.html")
+
+
+@app.route("/signin", methods=["GET", "POST"])
+def sign_in():
+    if signed_in_user():
+        return redirect(url_for("companies_dashboard"))
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().casefold()
+        password = request.form.get("password", "")
+        user = db().execute("SELECT * FROM app_users WHERE email=? COLLATE NOCASE AND active=1", (email,)).fetchone()
+        if user and check_password_hash(user["password_hash"], password):
+            session.clear()
+            session.permanent = True
+            session["app_user_id"] = user["id"]
+            flash("Welcome back, " + user["display_name"] + ".", "success")
+            return redirect(url_for("companies_dashboard"))
+        if not user:
+            flash("User not registered. Please create an account first.", "error")
+        else:
+            flash("Incorrect password. Please try again.", "error")
+    return render_template("signin.html")
+
+
+@app.before_request
+def require_main_sign_in():
+    """Keep every business workspace behind the main email/password sign-in."""
+    public_endpoints = {"dashboard", "sign_in", "sign_up", "service_worker", "static", "user_logout"}
+    if request.endpoint in public_endpoints or request.path.startswith("/static/"):
+        return None
+    if not signed_in_user():
+        return redirect(url_for("sign_in"))
+    return None
+
+
 @app.route("/companies")
 def companies_dashboard():
     return render_template("companies.html", show_form=False)
@@ -520,6 +596,9 @@ def company_new():
             connection.executemany("INSERT INTO accounts(company_id,code,name,category,is_cash) VALUES(?,?,?,?,?)", [(company.lastrowid, *account) for account in DEFAULT_ACCOUNTS])
             connection.execute("INSERT INTO currencies(company_id,code,name,rate_to_base) VALUES(?,?,?,1)", (company.lastrowid, currency, f"{currency} base currency"))
             connection.executemany("INSERT INTO document_series(company_id,document_type,number_mode,prefix,next_number) VALUES(?,?,?,?,?)", [(company.lastrowid, kind, "automatic", DEFAULT_SERIES[kind], 1) for kind in DOCUMENT_TYPES])
+            app_user = signed_in_user()
+            if app_user:
+                connection.execute("INSERT OR IGNORE INTO company_users(company_id,username,email,role,active) VALUES(?,?,?,?,1)", (company.lastrowid, app_user["display_name"], app_user["email"], "Owner"))
             connection.commit(); session["company_id"] = company.lastrowid
             flash("Company created. You can now record its transactions.", "success")
             return redirect(url_for("companies_dashboard"))
@@ -974,8 +1053,8 @@ def user_login(company_id):
 def user_logout():
     company = active_company()
     if company: audit(company["id"], "User logout"); db().commit()
-    session.pop("username", None); session.pop("user_role", None); session.pop("company_id", None)
-    return redirect(url_for("dashboard"))
+    session.clear()
+    return redirect(url_for("sign_in"))
 
 
 @app.route("/master/activity")
@@ -989,7 +1068,10 @@ def activity_records():
 @app.route("/current-user.json")
 def current_user_json():
     """Small UI helper for the signed-in name shown in the application header."""
-    return {"name": session.get("username", "Owner"), "role": session.get("user_role", "Owner")}
+    user = signed_in_user()
+    if not user:
+        return {"name": "", "role": ""}, 401
+    return {"name": user["display_name"], "role": session.get("user_role", "Zedjer user")}
 
 
 @app.route("/companies/select", methods=["POST"])
@@ -999,10 +1081,31 @@ def select_company():
         return redirect(url_for("analysis"))
     company = db().execute("SELECT * FROM companies WHERE id=? AND name <> 'Imported company'", (company_id,)).fetchone()
     if company:
+        app_user = signed_in_user()
         if company["auth_enabled"] and db().execute("SELECT 1 FROM company_users WHERE company_id=? AND active=1", (company_id,)).fetchone():
-            return redirect(url_for("user_login", company_id=company_id))
+            company_user = db().execute("SELECT * FROM company_users WHERE company_id=? AND email=? COLLATE NOCASE AND active=1", (company_id, app_user["email"])).fetchone()
+            # Smooth migration from the former company-only logins: the first
+            # main Zedjer account, or the email saved in the company profile,
+            # may claim the existing Owner record once.
+            is_first_zedjer_user = db().execute("SELECT COUNT(*) FROM app_users").fetchone()[0] == 1
+            is_company_email = (company["email"] or "").strip().casefold() == app_user["email"].casefold()
+            if not company_user and (is_first_zedjer_user or is_company_email):
+                owner = db().execute("SELECT * FROM company_users WHERE company_id=? AND role='Owner' AND active=1 ORDER BY id LIMIT 1", (company_id,)).fetchone()
+                if owner:
+                    db().execute("UPDATE company_users SET email=? WHERE id=?", (app_user["email"], owner["id"]))
+                else:
+                    db().execute("INSERT INTO company_users(company_id,username,email,role,active) VALUES(?,?,?,?,1)", (company_id, app_user["display_name"], app_user["email"], "Owner"))
+                db().commit()
+                company_user = db().execute("SELECT * FROM company_users WHERE company_id=? AND email=? COLLATE NOCASE AND active=1", (company_id, app_user["email"])).fetchone()
+            if not company_user:
+                flash("This email is not authorised for the selected company.", "error")
+                return redirect(url_for("companies_dashboard"))
+            session["company_id"], session["username"], session["user_role"] = company_id, company_user["username"], company_user["role"]
+            audit(company_id, "Company selected", f"Email sign-in: {app_user['email']}")
+            db().commit()
+            return redirect(url_for("analysis"))
         session.permanent = True
-        session["company_id"], session["username"], session["user_role"] = company_id, "Owner", "Owner"
+        session["company_id"], session["username"], session["user_role"] = company_id, app_user["display_name"], "Owner"
         flash("Company selected.", "success")
     return redirect(url_for("analysis"))
 
