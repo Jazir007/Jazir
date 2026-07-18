@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% block heading %}User authorisations{% endblock %}
+{% block content %}
+<section class="panel">
+  <h2>User authorisation</h2>
+  <p class="hint">This is disabled by default. Keep it disabled while setting up users, then enable it when you want users to sign in before opening this company.</p>
+  <form method="post" action="{{ url_for('user_authorisation_setting') }}" class="actions">
+    <label class="check"><input type="checkbox" name="auth_enabled" {% if active_company.auth_enabled %}checked{% endif %}> Require user sign-in to open this company</label>
+    <button class="primary">Save setting</button>
+  </form>
+</section>
+<section class="panel">
+  <h2>User profile and access</h2>
+  <p class="hint">Create an Owner, Administrator, Accountant or Viewer login for this company. Add at least one active user with a password before enabling sign-in.</p>
+  <form method="post" class="form-grid" autocomplete="off">
+    <label>User name<input name="username" required autocomplete="off" autocapitalize="none" spellcheck="false"></label>
+    <label>Contact number<input name="contact_no"></label>
+    <label>Email address<input name="email" type="email"></label>
+    <label>Login password<input name="password" type="password" placeholder="Required for new user"></label>
+    <label>Access level<select name="role"><option>Owner</option><option>Administrator</option><option selected>Accountant</option><option>Viewer</option></select></label>
+    <label class="check"><input type="checkbox" name="active" checked>Active user</label>
+    <button class="primary">Save user</button>
+  </form>
+</section>
+<section class="panel">
+  <h2>Configured users</h2>
+  <table><thead><tr><th>User</th><th>Contact</th><th>Email</th><th>Access level</th><th>Status</th>{% if is_owner %}<th>Password</th>{% endif %}<th></th></tr></thead><tbody>{% for user in users %}<tr><td><b>{{ user.username }}</b></td><td>{{ user.contact_no or '-' }}</td><td>{{ user.email or '-' }}</td><td>{{ user.role }}</td><td>{{ 'Active' if user.active else 'Inactive' }}</td>{% if is_owner %}<td>{% if user.password_hash %}<span class="tag">Password set</span>{% else %}<span class="hint">Not set</span>{% endif %}</td>{% endif %}<td><a class="secondary" href="{{ url_for('edit_user_authorisation', user_id=user.id) }}">Edit</a></td></tr>{% else %}<tr><td colspan="{{ 7 if is_owner else 6 }}" class="empty">No user logins configured yet.</td></tr>{% endfor %}</tbody></table>
+</section>
+{% endblock %}

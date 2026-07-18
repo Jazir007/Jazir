@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% block heading %}Edit user{% endblock %}
+{% block content %}
+<section class="panel">
+  <div class="panel-title"><h2>{{ user.username }}</h2><a class="secondary" href="{{ url_for('user_authorisations') }}">Back to users</a></div>
+  <p class="hint">Update this user's contact details, role, access status, or password. Leave the password blank to keep the existing password.</p>
+  <form method="post" class="form-grid" autocomplete="off">
+    <label>User name<input name="username" value="{{ user.username }}" required autocomplete="off" autocapitalize="none" spellcheck="false"></label>
+    <label>Contact number<input name="contact_no" value="{{ user.contact_no or '' }}"></label>
+    <label>Email address<input name="email" type="email" value="{{ user.email or '' }}"></label>
+    <label>New login password<input name="password" type="password" placeholder="Leave blank to keep unchanged"></label>
+    <label>Access level<select name="role"><option {% if user.role == 'Owner' %}selected{% endif %}>Owner</option><option {% if user.role == 'Administrator' %}selected{% endif %}>Administrator</option><option {% if user.role == 'Accountant' %}selected{% endif %}>Accountant</option><option {% if user.role == 'Viewer' %}selected{% endif %}>Viewer</option></select></label>
+    <label class="check"><input type="checkbox" name="active" {% if user.active %}checked{% endif %}>Active user</label>
+    <div class="actions"><a class="secondary" href="{{ url_for('user_authorisations') }}">Cancel</a><button class="primary">Save changes</button></div>
+  </form>
+</section>
+{% endblock %}

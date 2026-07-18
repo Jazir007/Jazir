@@ -1,0 +1,5 @@
+{% extends 'base.html' %}
+{% block heading %}Edit bank statement line{% endblock %}
+{% block content %}
+<section class="panel"><h2>{{ line.code }} - {{ line.name }}</h2><p class="hint">Amounts are in {{ line.default_currency }}. Saving clears the previous reconciliation, so you can match it again.</p><form method="post" class="form-grid"><label>Date<input type="date" name="statement_date" value="{{ line.statement_date }}" required></label><label>Description<input name="description" value="{{ line.description or '' }}"></label><label>Reference<input name="reference" value="{{ line.reference or '' }}"></label><label>Deposits<input name="debit" type="number" step="0.01" min="0" value="{{ line.debit if line.debit else '' }}"></label><label>Withdrawals<input name="credit" type="number" step="0.01" min="0" value="{{ line.credit if line.credit else '' }}"></label><div class="actions"><a class="secondary" href="{{ url_for('banking', account_id=line.account_id) }}#statement">Cancel</a><button class="primary">Save line</button></div></form></section>
+{% endblock %}

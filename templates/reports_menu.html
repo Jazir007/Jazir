@@ -1,0 +1,11 @@
+{% extends 'base.html' %}
+{% block heading %}Reports{% endblock %}
+{% block content %}
+<section class="report-menu">
+  <a href="{{ url_for('trial_balance') }}"><span>01</span><h2>Trial balance</h2><p>Opening, period movement and closing balances.</p></a>
+  <a href="{{ url_for('income_statement') }}"><span>02</span><h2>Income statement</h2><p>Revenue, expenses and profit.</p></a>
+  <a href="{{ url_for('financial_position') }}"><span>03</span><h2>Financial position</h2><p>Assets, liabilities and equity.</p></a>
+  <a href="{{ url_for('cash_flow') }}"><span>04</span><h2>Cash flow</h2><p>Cash, bank and card movements.</p></a>
+  <a href="{{ url_for('analysis_tag_report') }}"><span>05</span><h2>Analysis tag transactions</h2><p>Detailed transaction-wise category and tag classification.</p></a>
+</section>
+{% endblock %}

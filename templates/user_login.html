@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+{% block heading %}Sign in to {{ company.name }}{% endblock %}
+{% block content %}
+<section class="panel confirmation">
+  <h2>User login</h2>
+  <p class="hint">Use the user name and password configured in Master → User Authorisations.</p>
+  <form method="post" class="form-grid" autocomplete="off">
+    <label>User name<input name="username" required autofocus autocomplete="off" autocapitalize="none" spellcheck="false"></label>
+    <label>Password<input name="password" type="password" required autocomplete="new-password"></label>
+    <div class="actions"><a class="secondary" href="{{ url_for('companies_dashboard') }}">Back</a><button class="primary">Sign in</button></div>
+  </form>
+</section>
+{% endblock %}

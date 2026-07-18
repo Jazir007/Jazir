@@ -1,0 +1,11 @@
+{% extends 'base.html' %}
+{% block heading %}Accounts Book{% endblock %}
+{% block content %}
+<section class="master-grid">
+  <a href="{{ url_for('general_ledger') }}"><b>General Ledger</b><span>View account-wise transactions and export detailed ledgers.</span></a>
+  <a href="{{ url_for('day_book') }}"><b>Day Book</b><span>View transactions recorded by date and period.</span></a>
+  <a href="{{ url_for('document_type_report') }}"><b>Transaction Register</b><span>Browse transactions by document type, with a summary and detailed view.</span></a>
+  <a href="{{ url_for('loan_amortization') }}"><b>Loan Analysis</b><span>Repayment schedules, principal, interest and outstanding loans.</span></a>
+  <a href="{{ url_for('investment_analysis') }}"><b>Investment Analysis</b><span>Import stock investments, track FIFO holdings and realized profit or loss.</span></a>
+</section>
+{% endblock %}
