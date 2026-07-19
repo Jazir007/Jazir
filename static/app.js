@@ -57,6 +57,14 @@ document.addEventListener('DOMContentLoaded', () => {
       .theme-toggle{overflow:hidden;position:relative;border:1px solid rgba(255,255,255,.62)!important;background:linear-gradient(135deg,rgba(255,255,255,.64),rgba(210,249,250,.3))!important;backdrop-filter:blur(13px) saturate(1.35);-webkit-backdrop-filter:blur(13px) saturate(1.35);box-shadow:inset 0 1px 1px rgba(255,255,255,.75),inset 0 -1px 5px rgba(11,83,105,.08),0 7px 18px rgba(14,79,104,.14)!important;transition:transform .22s ease,box-shadow .22s ease,background .28s ease}
       .dark-mode .theme-toggle{background:linear-gradient(135deg,rgba(80,147,187,.4),rgba(15,88,114,.34))!important;border-color:rgba(177,238,255,.28)!important;box-shadow:inset 0 1px 1px rgba(226,255,255,.18),inset 0 -1px 6px rgba(0,16,40,.22),0 8px 20px rgba(0,0,0,.28)!important}
       .theme-toggle:hover{transform:translateY(-2px) scale(1.05);box-shadow:inset 0 1px 1px rgba(255,255,255,.78),0 11px 23px rgba(13,84,110,.2)!important}
+      @media(max-width:900px){
+        aside{display:flex!important;flex-direction:column!important;align-items:stretch!important;height:100vh!important;padding:28px 18px!important}
+        aside .brand{display:flex!important;align-items:center!important;white-space:nowrap!important;padding:0 10px 25px!important}
+        aside .company-switch{width:auto!important;margin:0 10px 20px!important}
+        aside nav{display:grid!important;grid-template-columns:1fr!important;width:100%!important;margin:0!important;gap:7px!important}
+        aside nav a{display:flex!important;align-items:center!important;justify-content:flex-start!important;min-width:0!important;white-space:nowrap!important;text-align:left!important}
+        aside .company-meta{margin-top:auto!important}
+      }
       .theme-toggle:after{content:'';position:absolute;inset:50%;width:8px;height:8px;border:1px solid currentColor;border-radius:50%;opacity:0;transform:translate(-50%,-50%) scale(.2);pointer-events:none}
       .theme-toggle.is-switching{transform:scale(.88) rotate(18deg);box-shadow:0 0 0 7px rgba(118,220,232,.15),0 8px 22px rgba(0,63,91,.22)!important}
       .theme-toggle.is-switching:after{animation:themeButtonRipple .46s ease-out both}
