@@ -424,7 +424,19 @@ def company_required():
         session.pop("company_id", None); session.pop("username", None); session.pop("user_role", None)
         flash("You do not have access to that company.", "error")
         return None
+    if company and company["auth_enabled"] and session.get("company_user_authenticated_for") != company["id"]:
+        session.pop("company_id", None); session.pop("username", None); session.pop("user_role", None)
+        flash("Sign in with a company user account to open this company.", "error")
+        return None
     return company
+
+
+def company_user_admin_required(company):
+    """Only the configured Owner or Administrator may manage company users."""
+    if session.get("user_role") not in ("Owner", "Administrator"):
+        flash("Owner or Administrator access is required to manage company users.", "error")
+        return False
+    return True
 
 
 def document_series(company_id, document_type):
@@ -1126,6 +1138,7 @@ def loan_schedule_import_sample():
 def user_authorisations():
     company = company_required()
     if not company: return redirect(url_for("companies_dashboard"))
+    if not company_user_admin_required(company): return redirect(url_for("analysis"))
     if request.method == "POST":
         try:
             username, role = request.form.get("username", "").strip(), request.form.get("role", "Accountant")
@@ -1149,6 +1162,7 @@ def user_authorisations():
 def edit_user_authorisation(user_id):
     company = company_required()
     if not company: return redirect(url_for("companies_dashboard"))
+    if not company_user_admin_required(company): return redirect(url_for("analysis"))
     user = db().execute("SELECT * FROM company_users WHERE id=? AND company_id=?", (user_id, company["id"])).fetchone()
     if not user: return redirect(url_for("user_authorisations"))
     if request.method == "POST":
@@ -1175,6 +1189,7 @@ def edit_user_authorisation(user_id):
 def user_authorisation_setting():
     company = company_required()
     if not company: return redirect(url_for("companies_dashboard"))
+    if not company_user_admin_required(company): return redirect(url_for("analysis"))
     enabled = int(bool(request.form.get("auth_enabled")))
     if enabled and not db().execute("SELECT 1 FROM company_users WHERE company_id=? AND active=1 AND password_hash IS NOT NULL AND trim(password_hash)<>''", (company["id"],)).fetchone():
         flash("Add an active user with a login password before enabling user authorisation.", "error")
@@ -1190,12 +1205,18 @@ def user_authorisation_setting():
 def user_login(company_id):
     company = db().execute("SELECT * FROM companies WHERE id=? AND name <> 'Imported company'", (company_id,)).fetchone()
     if not company: return redirect(url_for("companies_dashboard"))
+    app_user = signed_in_user()
+    if not app_user or not user_company_access(app_user, company_id):
+        flash("This account does not have access to the selected company.", "error")
+        return redirect(url_for("companies_dashboard"))
     if request.method == "POST":
         user = db().execute("SELECT * FROM company_users WHERE company_id=? AND username=? COLLATE NOCASE AND active=1", (company_id, request.form.get("username", "").strip())).fetchone()
         entered_password = request.form.get("password", "")
         if user and user["password_hash"] and (check_password_hash(user["password_hash"], entered_password.casefold()) or check_password_hash(user["password_hash"], entered_password)):
             session.permanent = True
-            session["company_id"], session["username"], session["user_role"] = company_id, user["username"], user["role"]; audit(company_id, "User login", f"Role: {user['role']}"); db().commit(); return redirect(url_for("analysis"))
+            session["company_id"], session["username"], session["user_role"] = company_id, user["username"], user["role"]
+            session["company_user_authenticated_for"] = company_id
+            audit(company_id, "User login", f"Role: {user['role']}"); db().commit(); return redirect(url_for("analysis"))
         flash("Invalid user name or password.", "error")
     return render_template("user_login.html", company=company)
 
@@ -1206,6 +1227,21 @@ def user_logout():
     if company: audit(company["id"], "User logout"); db().commit()
     session.clear()
     return redirect(url_for("sign_in"))
+
+
+@app.route("/company/logout", methods=["POST"])
+def company_logout():
+    """Close only the active company workspace and retain the ERP email session."""
+    company = active_company()
+    if company:
+        audit(company["id"], "Company user logout", f"User: {session.get('username', 'Unknown')}")
+        db().commit()
+    session.pop("company_id", None)
+    session.pop("username", None)
+    session.pop("user_role", None)
+    session.pop("company_user_authenticated_for", None)
+    flash("You have signed out of the company. Your Zedjer ERP session remains active.", "success")
+    return redirect(url_for("companies_dashboard"))
 
 
 @app.route("/master/activity")
@@ -1222,7 +1258,7 @@ def current_user_json():
     user = signed_in_user()
     if not user:
         return {"name": "", "role": ""}, 401
-    return {"name": user["display_name"], "role": session.get("user_role", "Zedjer user"), "is_admin": bool(user["is_admin"])}
+    return {"name": user["display_name"], "role": session.get("user_role", "Zedjer user"), "is_admin": bool(user["is_admin"]), "has_active_company": bool(active_company())}
 
 
 @app.route("/admin/users")
@@ -1319,6 +1355,10 @@ def select_company():
         if not access:
             flash("This account does not have access to the selected company.", "error")
             return redirect(url_for("companies_dashboard"))
+        session.pop("company_user_authenticated_for", None)
+        if company["auth_enabled"]:
+            session.pop("company_id", None); session.pop("username", None); session.pop("user_role", None)
+            return redirect(url_for("user_login", company_id=company_id))
         session.permanent = True
         session["company_id"], session["username"], session["user_role"] = company_id, app_user["display_name"], access["role"]
         audit(company_id, "Company selected", f"Email sign-in: {app_user['email']}")

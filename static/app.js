@@ -57,6 +57,7 @@ document.addEventListener('DOMContentLoaded', () => {
       .theme-toggle{overflow:hidden;position:relative;border:1px solid rgba(255,255,255,.62)!important;background:linear-gradient(135deg,rgba(255,255,255,.64),rgba(210,249,250,.3))!important;backdrop-filter:blur(13px) saturate(1.35);-webkit-backdrop-filter:blur(13px) saturate(1.35);box-shadow:inset 0 1px 1px rgba(255,255,255,.75),inset 0 -1px 5px rgba(11,83,105,.08),0 7px 18px rgba(14,79,104,.14)!important;transition:transform .22s ease,box-shadow .22s ease,background .28s ease}
       .dark-mode .theme-toggle{background:linear-gradient(135deg,rgba(80,147,187,.4),rgba(15,88,114,.34))!important;border-color:rgba(177,238,255,.28)!important;box-shadow:inset 0 1px 1px rgba(226,255,255,.18),inset 0 -1px 6px rgba(0,16,40,.22),0 8px 20px rgba(0,0,0,.28)!important}
       .theme-toggle:hover{transform:translateY(-2px) scale(1.05);box-shadow:inset 0 1px 1px rgba(255,255,255,.78),0 11px 23px rgba(13,84,110,.2)!important}
+      .user-control{position:relative}.user-chip{cursor:pointer;border:0;font:inherit;text-align:left}.user-control-menu{position:absolute;top:calc(100% + 9px);right:0;z-index:70;display:grid;min-width:188px;padding:7px;border:1px solid rgba(186,218,229,.84);border-radius:14px;background:rgba(252,255,255,.9);box-shadow:0 14px 30px rgba(12,73,94,.16);backdrop-filter:blur(14px);opacity:0;visibility:hidden;transform:translateY(-7px) scale(.97);transition:opacity .18s ease,transform .18s ease,visibility .18s}.user-control.open .user-control-menu{opacity:1;visibility:visible;transform:none}.user-control-menu form{margin:0}.user-control-menu button,.user-control-menu a{display:block;width:100%;padding:10px 11px;border:0;border-radius:9px;background:transparent;color:#24505f;font:700 12px inherit;text-align:left;text-decoration:none;cursor:pointer}.user-control-menu button:hover,.user-control-menu a:hover{background:#e8f6f8;color:#087b9b}.dark-mode .user-control-menu{border-color:#315765;background:rgba(16,43,57,.94)}.dark-mode .user-control-menu button,.dark-mode .user-control-menu a{color:#d9f2f6}.dark-mode .user-control-menu button:hover,.dark-mode .user-control-menu a:hover{background:#1b5260;color:#a7f1ed}
       @media(max-width:900px){
         aside{display:flex!important;flex-direction:column!important;align-items:stretch!important;height:100vh!important;padding:28px 18px!important}
         aside .brand{display:flex!important;align-items:center!important;white-space:nowrap!important;padding:0 10px 25px!important}
@@ -93,10 +94,15 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     fetch('/current-user.json').then(response => response.ok ? response.json() : null).then(user => {
       if (!user) return;
-      const chip = document.createElement('div'); chip.className = 'user-chip';
+      const control = document.createElement('div'); control.className = 'user-control';
+      const chip = document.createElement('button'); chip.type = 'button'; chip.className = 'user-chip'; chip.setAttribute('aria-expanded', 'false');
       const initial = String(user.name || 'U').trim().charAt(0).toUpperCase();
       chip.innerHTML = `<span>${initial}</span><div><b>${user.name}</b><small>${user.role}</small></div>`;
-      tools.append(chip);
+      const menu = document.createElement('div'); menu.className = 'user-control-menu';
+      menu.innerHTML = `${user.has_active_company ? '<form method="post" action="/company/logout"><button type="submit">Log out of company</button></form>' : ''}<a href="/logout">Log out of ERP</a>`;
+      chip.addEventListener('click', event => { event.stopPropagation(); const open = control.classList.toggle('open'); chip.setAttribute('aria-expanded', String(open)); });
+      document.addEventListener('click', () => { control.classList.remove('open'); chip.setAttribute('aria-expanded', 'false'); });
+      control.append(chip, menu); tools.append(control);
       if (user.is_admin) {
         const nav = document.querySelector('aside nav');
         if (nav && !nav.querySelector('[href="/admin/users"]')) {
