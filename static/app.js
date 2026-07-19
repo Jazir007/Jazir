@@ -43,7 +43,40 @@ document.addEventListener('DOMContentLoaded', () => {
     install.addEventListener('click', async () => { if (!deferredInstallPrompt) return; deferredInstallPrompt.prompt(); await deferredInstallPrompt.userChoice; deferredInstallPrompt = null; showInstall(); });
     const theme = document.createElement('button'); theme.type = 'button'; theme.className = 'theme-toggle'; theme.setAttribute('aria-label', 'Toggle dark mode');
     const updateThemeIcon = () => { theme.textContent = document.body.classList.contains('dark-mode') ? '☀' : '☾'; };
-    theme.addEventListener('click', () => { const dark = !document.body.classList.contains('dark-mode'); applyTheme(dark); localStorage.setItem('zedjer-theme', dark ? 'dark' : 'light'); updateThemeIcon(); });
+    const completeThemeChange = dark => { applyTheme(dark); localStorage.setItem('zedjer-theme', dark ? 'dark' : 'light'); updateThemeIcon(); };
+    const themeTransitionStyle = document.createElement('style');
+    themeTransitionStyle.textContent = `
+      html{--theme-origin-x:50vw;--theme-origin-y:50vh}
+      body:not(.dark-mode).dashboard-view .dashboard-metrics .metric-card:first-child:before{background:#dff3f6!important;color:#007b9a!important}
+      body:not(.dark-mode).dashboard-view .dashboard-metrics .metric-card:first-child small{background:#dff2ee!important;color:#18795c!important}
+      body:not(.dark-mode).dashboard-view .dashboard-metrics .metric-card:first-child.selected:before{background:rgba(255,255,255,.16)!important;color:#fff!important}
+      body:not(.dark-mode).dashboard-view .dashboard-metrics .metric-card:first-child.selected small{background:rgba(222,255,241,.22)!important;color:#e8fff7!important}
+      ::view-transition-old(root),::view-transition-new(root){animation-duration:.58s;animation-timing-function:cubic-bezier(.22,.8,.25,1)}
+      ::view-transition-old(root){animation-name:themeFadeOut}
+      ::view-transition-new(root){animation-name:themeLiquidReveal;clip-path:circle(0 at var(--theme-origin-x) var(--theme-origin-y))}
+      .theme-toggle{overflow:hidden;position:relative;border:1px solid rgba(255,255,255,.62)!important;background:linear-gradient(135deg,rgba(255,255,255,.64),rgba(210,249,250,.3))!important;backdrop-filter:blur(13px) saturate(1.35);-webkit-backdrop-filter:blur(13px) saturate(1.35);box-shadow:inset 0 1px 1px rgba(255,255,255,.75),inset 0 -1px 5px rgba(11,83,105,.08),0 7px 18px rgba(14,79,104,.14)!important;transition:transform .22s ease,box-shadow .22s ease,background .28s ease}
+      .dark-mode .theme-toggle{background:linear-gradient(135deg,rgba(80,147,187,.4),rgba(15,88,114,.34))!important;border-color:rgba(177,238,255,.28)!important;box-shadow:inset 0 1px 1px rgba(226,255,255,.18),inset 0 -1px 6px rgba(0,16,40,.22),0 8px 20px rgba(0,0,0,.28)!important}
+      .theme-toggle:hover{transform:translateY(-2px) scale(1.05);box-shadow:inset 0 1px 1px rgba(255,255,255,.78),0 11px 23px rgba(13,84,110,.2)!important}
+      .theme-toggle:after{content:'';position:absolute;inset:50%;width:8px;height:8px;border:1px solid currentColor;border-radius:50%;opacity:0;transform:translate(-50%,-50%) scale(.2);pointer-events:none}
+      .theme-toggle.is-switching{transform:scale(.88) rotate(18deg);box-shadow:0 0 0 7px rgba(118,220,232,.15),0 8px 22px rgba(0,63,91,.22)!important}
+      .theme-toggle.is-switching:after{animation:themeButtonRipple .46s ease-out both}
+      @keyframes themeLiquidReveal{to{clip-path:circle(150vmax at var(--theme-origin-x) var(--theme-origin-y))}}
+      @keyframes themeFadeOut{to{opacity:.52;filter:saturate(.86) blur(.4px)}}
+      @keyframes themeButtonRipple{0%{opacity:.9;transform:translate(-50%,-50%) scale(.2)}100%{opacity:0;transform:translate(-50%,-50%) scale(9)}}
+      @media(prefers-reduced-motion:reduce){::view-transition-old(root),::view-transition-new(root){animation:none}.theme-toggle.is-switching{transform:none}}
+    `;
+    document.head.append(themeTransitionStyle);
+    theme.addEventListener('click', () => {
+      const dark = !document.body.classList.contains('dark-mode');
+      const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const bounds = theme.getBoundingClientRect();
+      document.documentElement.style.setProperty('--theme-origin-x', `${bounds.left + bounds.width / 2}px`);
+      document.documentElement.style.setProperty('--theme-origin-y', `${bounds.top + bounds.height / 2}px`);
+      theme.classList.add('is-switching');
+      const finish = () => theme.classList.remove('is-switching');
+      if (!document.startViewTransition || reducedMotion) { completeThemeChange(dark); window.setTimeout(finish, 260); return; }
+      document.startViewTransition(() => completeThemeChange(dark)).finished.finally(finish);
+    });
     tools.append(install, theme); pageHeader.append(tools); updateThemeIcon();
     // Keep page-level import actions beside the account controls, before theme
     // and user details, without moving any upload forms themselves.

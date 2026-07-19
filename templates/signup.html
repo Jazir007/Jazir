@@ -1,1 +1,46 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Create account · Zedjer</title><link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}"><link rel="stylesheet" href="{{ url_for('static', filename='auth.css') }}"></head><body class="auth-page"><main class="auth-shell"><section class="auth-card"><a class="auth-brand" href="{{ url_for('dashboard') }}">Zedjer</a><p class="eyebrow">GET STARTED</p><h1>Create your account</h1><p class="auth-copy">A few details help the ERP administrator understand who is using Zedjer.</p>{% with messages=get_flashed_messages(with_categories=true) %}{% for type,message in messages %}<div class="flash {{ type }}">{{ message }}</div>{% endfor %}{% endwith %}<form method="post" class="auth-form" autocomplete="on"><label>Your name<input name="display_name" required autofocus autocomplete="name" placeholder="Your name"></label><label>Email address<input name="email" type="email" required autocomplete="email" placeholder="you@example.com"></label><label>Profession<input name="profession" required placeholder="e.g. Accountant, business owner"></label><label>Field / industry<input name="industry" required placeholder="e.g. Trading, construction"></label><label>How did you hear about Zedjer?<input name="discovery_source" required placeholder="e.g. Friend, Google, social media"></label><label>Password<input name="password" type="password" required minlength="8" autocomplete="new-password" placeholder="At least 8 characters"></label><label>Confirm password<input name="confirm_password" type="password" required minlength="8" autocomplete="new-password" placeholder="Re-enter password"></label><button class="primary" type="submit">Create account</button></form><p class="auth-switch">Already have an account? <a href="{{ url_for('sign_in') }}">Sign in</a></p></section></main></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Create account · Zedjer Books</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='auth.css') }}">
+  <style>
+    .auth-brand-light .auth-mark img{display:block;width:31px;height:31px;object-fit:contain;filter:brightness(0) invert(1)}
+    .auth-signup-shell{height:calc(100vh - 44px);min-height:620px}.auth-signup-shell .auth-login-pane{align-items:center;overflow:hidden;padding:22px 48px}.signup-pane{animation:signupFade .45s cubic-bezier(.16,.8,.22,1) both}
+    .signup-pane .auth-login-symbol{width:42px;height:42px;margin-bottom:10px}.signup-pane .auth-login-symbol img{width:35px;height:35px}.signup-pane .eyebrow{margin-bottom:4px}.signup-pane h1{font-size:31px!important;line-height:1.05}.signup-pane .auth-copy{margin:7px 0 12px;font-size:13px}.signup-pane .auth-modern-form{gap:7px}.signup-pane .auth-modern-form label{gap:3px;font-size:12px}.signup-pane .auth-modern-form input{min-height:34px;padding:7px 11px;border-radius:9px}.signup-pane .auth-submit{min-height:38px;margin-top:2px!important;border-radius:10px!important}.signup-pane .auth-switch{margin:10px 0 0;font-size:12px}
+    .auth-signup-shell .orbit-one{animation:orbitDriftOne 13s ease-in-out infinite}.auth-signup-shell .orbit-two{animation:orbitDriftTwo 10s ease-in-out infinite}.auth-signup-shell .showcase-copy{animation:showcaseRise .8s cubic-bezier(.16,.8,.22,1) .12s both}.auth-signup-shell .showcase-kicker{animation:softPulse 3s ease-in-out 1s infinite}.auth-signup-shell .showcase-copy h1 span{display:block;opacity:0;transform:translateX(-28px);animation:wordReveal .62s cubic-bezier(.16,.8,.22,1) forwards,wordBreathe 4.8s ease-in-out 1.2s infinite}.auth-signup-shell .showcase-copy h1 span:nth-child(1){animation-delay:.32s,1.4s}.auth-signup-shell .showcase-copy h1 span:nth-child(2){animation-delay:.5s,1.65s}.auth-signup-shell .showcase-copy h1 span:nth-child(3){animation-delay:.68s,1.9s}.auth-signup-shell .showcase-copy p:last-child{opacity:0;animation:quoteReveal .7s ease-out 1.02s forwards,quoteFloat 4s ease-in-out 1.75s infinite}.auth-signup-shell .showcase-footer{animation:quoteReveal .7s ease-out 1.2s both,footerFloat 5s ease-in-out 2s infinite}@keyframes orbitDriftOne{0%,100%{transform:translate3d(0,0,0) rotate(0deg)}50%{transform:translate3d(-34px,28px,0) rotate(13deg)}}@keyframes orbitDriftTwo{0%,100%{transform:translate3d(0,0,0) scale(1)}50%{transform:translate3d(28px,-24px,0) scale(1.08)}}@keyframes showcaseRise{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:none}}@keyframes wordReveal{to{opacity:1;transform:none}}@keyframes quoteReveal{to{opacity:1;transform:none}}@keyframes softPulse{50%{color:#fff;letter-spacing:.22em}}@keyframes wordBreathe{50%{transform:translateX(4px);text-shadow:0 0 24px rgba(198,255,248,.18)}}@keyframes quoteFloat{50%{transform:translateY(-5px);color:#fff}}@keyframes footerFloat{50%{transform:translateY(-3px)}}
+    @keyframes signupFade{from{opacity:0;transform:translateY(18px) scale(.99)}to{opacity:1;transform:none}}
+    @media(prefers-reduced-motion:reduce){.signup-pane,.auth-signup-shell .orbit-one,.auth-signup-shell .orbit-two,.auth-signup-shell .showcase-copy,.auth-signup-shell .showcase-kicker,.auth-signup-shell .showcase-copy h1 span,.auth-signup-shell .showcase-copy p:last-child,.auth-signup-shell .showcase-footer{animation:none;opacity:1;transform:none}}@media(max-width:880px){.auth-signup-shell{height:auto;min-height:100vh}.auth-signup-shell .auth-login-pane{align-items:center;overflow:auto;padding:28px 24px}}
+  </style>
+</head>
+<body class="auth-page">
+  <main class="auth-shell auth-split-shell auth-signup-shell">
+    <section class="auth-showcase">
+      <a class="auth-brand auth-brand-light" href="{{ url_for('dashboard') }}"><span class="auth-mark"><img src="{{ url_for('static', filename='images/zedjer-zj.png') }}" alt=""></span><b>Zedjer Books</b></a>
+      <div class="showcase-orbit orbit-one"></div><div class="showcase-orbit orbit-two"></div>
+      <div class="showcase-copy"><p class="showcase-kicker">YOUR FINANCE WORKSPACE</p><h1><span>Start with</span><span>clearer</span><span>books.</span></h1><p>Create your secure Zedjer Books account to manage companies, accounting, and financial insight in one place.</p></div>
+      <div class="showcase-footer"><div class="mini-avatars"><span>₹</span><span>ƒ</span><span>✓</span></div><div><b>Built for modern business</b><small>Secure, multi-company accounting</small></div></div>
+    </section>
+    <section class="auth-login-pane">
+      <div class="auth-login-inner signup-pane">
+        <div class="auth-login-symbol"><img src="{{ url_for('static', filename='images/zedjer-zj.png') }}" alt="Zedjer Books"></div>
+        <p class="eyebrow">GET STARTED</p><h1>Create your account</h1><p class="auth-copy">A few details help the ERP administrator understand who is using Zedjer.</p>
+        {% with messages=get_flashed_messages(with_categories=true) %}{% for type,message in messages %}<div class="flash {{ type }}">{{ message }}</div>{% endfor %}{% endwith %}
+        <form method="post" class="auth-form auth-modern-form" autocomplete="on">
+          <label>Your name<input name="display_name" required autofocus autocomplete="name" placeholder="Your name"></label>
+          <label>Email address<input name="email" type="email" required autocomplete="email" placeholder="you@example.com"></label>
+          <label>Profession<input name="profession" required placeholder="e.g. Accountant, business owner"></label>
+          <label>Field / industry<input name="industry" required placeholder="e.g. Trading, construction"></label>
+          <label>How did you hear about Zedjer?<input name="discovery_source" required placeholder="e.g. Friend, Google, social media"></label>
+          <label>Password<input name="password" type="password" required minlength="8" autocomplete="new-password" placeholder="At least 8 characters"></label>
+          <label>Confirm password<input name="confirm_password" type="password" required minlength="8" autocomplete="new-password" placeholder="Re-enter password"></label>
+          <button class="primary auth-submit" type="submit">Create account <span>→</span></button>
+        </form>
+        <p class="auth-switch">Already have an account? <a href="{{ url_for('sign_in') }}">Sign in</a></p>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
