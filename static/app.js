@@ -420,6 +420,39 @@ visibleDateNodes.forEach((node) => {
     const updateTotal = () => { const value = Number(quantity.value) * Number(rate.value); if (Number.isFinite(value) && value > 0) total.value = value.toFixed(2); };
     quantity?.addEventListener('input', updateTotal); rate?.addEventListener('input', updateTotal);
   });
+  const billScanTrigger = document.querySelector('#scan-bill-trigger');
+  const billScanFile = document.querySelector('#scan-bill-file');
+  const billScanStatus = document.querySelector('#scan-bill-status');
+  if (billScanTrigger && billScanFile && billScanStatus) {
+    billScanTrigger.addEventListener('click', () => billScanFile.click());
+    billScanFile.addEventListener('change', async () => {
+      const bill = billScanFile.files?.[0]; if (!bill) return;
+      billScanStatus.textContent = 'Reading bill details…'; billScanTrigger.disabled = true;
+      try {
+        const data = new FormData(); data.append('bill', bill);
+        const response = await fetch('/transactions/scan-bill', {method: 'POST', body: data});
+        const draft = await response.json(); if (!response.ok) throw new Error(draft.error || 'The bill could not be scanned.');
+        const form = document.querySelector('#transaction-form');
+        const set = (selector, value) => { const field = form?.querySelector(selector); if (field && value) { field.value = value; field.dispatchEvent(new Event('change', {bubbles: true})); } };
+        set('[name="entry_date"]', draft.date); set('[name="reference"]', draft.reference); set('[name="memo"]', draft.narration);
+        let partyField = form?.querySelector('[name="party"]');
+        if (!partyField && form?.querySelector('.form-grid')) { const label = document.createElement('label'); label.innerHTML = 'Party<input name="party" placeholder="Customer, supplier, employee or other party">'; form.querySelector('.form-grid').append(label); partyField = label.querySelector('input'); }
+        if (partyField && draft.party) partyField.value = draft.party;
+        const amount = Number(draft.amount);
+        const lines = [...document.querySelectorAll('#lines .line')];
+        if (Number.isFinite(amount) && amount > 0 && lines.length >= 2) {
+          lines[0].querySelector('[name="debit[]"]').value = amount.toFixed(2);
+          lines[0].querySelector('[name="credit[]"]').value = '';
+          lines[0].querySelector('[name="description[]"]').value = draft.narration || '';
+          lines[1].querySelector('[name="credit[]"]').value = amount.toFixed(2);
+          lines[1].querySelector('[name="debit[]"]').value = '';
+          lines[1].querySelector('[name="description[]"]').value = draft.narration || '';
+        }
+        billScanStatus.textContent = 'Bill details added. Select the debit and credit ledger accounts, review the values, then post the transaction.';
+      } catch (error) { billScanStatus.textContent = error.message || 'The bill could not be scanned.'; }
+      finally { billScanTrigger.disabled = false; billScanFile.value = ''; }
+    });
+  }
   if (!location.pathname.startsWith('/accounts')) {
     document.querySelectorAll('option, td, h2, .ledger-link').forEach((element) => {
       if (element.children.length) return;

@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import csv
 import os
+import re
 import sqlite3
+import subprocess
+import tempfile
 from contextlib import closing
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -38,6 +41,45 @@ def normalise_date(value):
         try: return datetime.strptime(text, pattern).date().isoformat()
         except ValueError: pass
     raise ValueError("Use date format DD-MM-YYYY")
+
+
+def bill_scan_details(text):
+    """Extract conservative, editable draft values from an OCR bill transcript."""
+    compact = re.sub(r"[\t ]+", " ", text or "").strip()
+    lines = [re.sub(r"\s+", " ", line).strip() for line in (text or "").splitlines()]
+    lines = [line for line in lines if line]
+    parsed_date = ""
+    date_patterns = (
+        (r"\b(\d{4}[-/]\d{1,2}[-/]\d{1,2})\b", ("%Y-%m-%d", "%Y/%m/%d")),
+        (r"\b(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})\b", ("%d-%m-%Y", "%d/%m/%Y", "%d-%m-%y", "%d/%m/%y")),
+        (r"\b(\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4})\b", ("%d %b %Y", "%d %B %Y")),
+    )
+    for expression, formats in date_patterns:
+        match = re.search(expression, compact)
+        if not match:
+            continue
+        for fmt in formats:
+            try:
+                parsed_date = datetime.strptime(match.group(1), fmt).date().isoformat()
+                break
+            except ValueError:
+                continue
+        if parsed_date:
+            break
+    total_candidates = re.findall(r"(?:grand\s*total|amount\s*due|net\s*amount|total)\D{0,18}([0-9][0-9,]*(?:\.\d{1,2})?)", compact, flags=re.I)
+    if not total_candidates:
+        total_candidates = re.findall(r"\b([0-9][0-9,]*(?:\.\d{2}))\b", compact)
+    amount = ""
+    if total_candidates:
+        try:
+            amount = f"{max(Decimal(value.replace(',', '')) for value in total_candidates):.2f}"
+        except InvalidOperation:
+            pass
+    reference_match = re.search(r"(?:invoice|bill|receipt|tax\s*invoice|ref(?:erence)?)\s*(?:no\.?|#|:)?\s*([A-Za-z0-9][A-Za-z0-9/_-]{2,})", compact, flags=re.I)
+    reference = reference_match.group(1) if reference_match else ""
+    excluded = re.compile(r"(invoice|bill|receipt|tax|date|total|amount|cash|card|phone|mobile|tel|www\.|http|gst|vat|trn)", re.I)
+    party = next((line[:120] for line in lines[:8] if len(line) > 2 and not excluded.search(line) and not re.fullmatch(r"[\d\W_]+", line)), "")
+    return {"date": parsed_date, "party": party, "reference": reference, "amount": amount, "narration": (f"Bill from {party}" if party else "Scanned bill"), "ocr_text": compact[:4000]}
 
 
 def normalise_stock_timestamp(value):
@@ -1658,6 +1700,71 @@ def transactions():
     entries = db().execute("SELECT * FROM journal_entries WHERE company_id=? ORDER BY entry_date DESC,id DESC LIMIT 20", (company["id"],)).fetchall()
     series_data = {kind: {"mode": document_series(company["id"], kind)["number_mode"], "suggested": suggested_document_no(company, kind)} for kind in DOCUMENT_TYPES}
     return render_template("transactions.html", accounts=accounts, entries=entries, document_types=DOCUMENT_TYPES, suggested_document_no=suggested_document_no(company), series_data=series_data)
+
+
+@app.route("/transactions/scan-bill", methods=["POST"])
+def scan_bill():
+    """Read an uploaded phone photo and return an editable transaction draft."""
+    company = company_required()
+    if not company:
+        return {"error": "Select a company first."}, 403
+    upload = request.files.get("bill")
+    if not upload or not upload.filename:
+        return {"error": "Choose a bill image or PDF to scan."}, 400
+    is_pdf = upload.filename.lower().endswith(".pdf")
+    if not is_pdf and not upload.filename.lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff")):
+        return {"error": "Use a clear bill photo or PDF in JPG, PNG, WEBP, BMP, TIFF, or PDF format."}, 400
+    tesseract_path = os.environ.get("TESSERACT_CMD", r"C:\\Program Files\\Tesseract-OCR\\tesseract.exe")
+    try:
+        from PIL import Image, ImageOps
+        import pytesseract
+    except ModuleNotFoundError:
+        Image = ImageOps = pytesseract = None
+    if pytesseract and os.path.isfile(tesseract_path):
+        pytesseract.pytesseract.tesseract_cmd = tesseract_path
+    if is_pdf:
+        if not (Image and pytesseract):
+            return {"error": "PDF scanning needs the project scanner packages. Restart the ERP with its project environment, then try again."}, 503
+        try: import fitz
+        except ModuleNotFoundError: return {"error": "PDF bill scanning needs PyMuPDF installed on this server."}, 503
+    try:
+        if is_pdf:
+            document = fitz.open(stream=upload.read(), filetype="pdf")
+            if not document.page_count:
+                raise ValueError
+            pages = []
+            for page_number in range(min(document.page_count, 3)):
+                pixmap = document.load_page(page_number).get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+                pages.append(Image.open(BytesIO(pixmap.tobytes("png"))).convert("L"))
+            transcript = "\n".join(pytesseract.image_to_string(page, config="--psm 6") for page in pages)
+        elif Image and pytesseract:
+            image = Image.open(upload.stream)
+            image = ImageOps.exif_transpose(image).convert("L")
+            if max(image.size) > 2200:
+                image.thumbnail((2200, 2200))
+            transcript = pytesseract.image_to_string(image, config="--psm 6")
+        elif os.path.isfile(tesseract_path):
+            extension = os.path.splitext(upload.filename)[1].lower() or ".jpg"
+            with tempfile.NamedTemporaryFile(suffix=extension, delete=False) as temporary_bill:
+                upload.save(temporary_bill)
+                temporary_path = temporary_bill.name
+            try:
+                result = subprocess.run([tesseract_path, temporary_path, "stdout", "--psm", "6"], capture_output=True, text=True, timeout=45, check=True)
+                transcript = result.stdout
+            finally:
+                if os.path.exists(temporary_path): os.remove(temporary_path)
+        else:
+            return {"error": "The Tesseract OCR engine is not available on this computer."}, 503
+    except Exception as error:
+        if pytesseract and isinstance(error, pytesseract.TesseractNotFoundError):
+            return {"error": "The bill scanner is installed but its OCR engine is not available on this server."}, 503
+        return {"error": "This bill could not be read. Try a clearer image or a readable PDF with the whole bill visible."}, 422
+    if len(transcript.strip()) < 3:
+        return {"error": "No bill details were found. Try a clearer image."}, 422
+    details = bill_scan_details(transcript)
+    audit(company["id"], "Bill scanned", f"Reference: {details['reference'] or '-'} | Amount: {details['amount'] or '-'}")
+    db().commit()
+    return details
 
 
 @app.route("/transactions/<int:entry_id>")
