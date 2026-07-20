@@ -424,6 +424,41 @@ visibleDateNodes.forEach((node) => {
   const billScanFile = document.querySelector('#scan-bill-file');
   const billScanStatus = document.querySelector('#scan-bill-status');
   if (billScanTrigger && billScanFile && billScanStatus) {
+    const applyBillDraft = (draft) => {
+      const form = document.querySelector('#transaction-form');
+      const set = (selector, value) => { const field = form?.querySelector(selector); if (field && value) { field.value = value; field.dispatchEvent(new Event('change', {bubbles: true})); } };
+      set('[name="entry_date"]', draft.date); set('[name="reference"]', draft.reference); set('[name="memo"]', draft.narration);
+      let partyField = form?.querySelector('[name="party"]');
+      if (!partyField && form?.querySelector('.form-grid')) { const label = document.createElement('label'); label.innerHTML = 'Party<input name="party" placeholder="Customer, supplier, employee or other party">'; form.querySelector('.form-grid').append(label); partyField = label.querySelector('input'); }
+      if (partyField && draft.party) partyField.value = draft.party;
+      const amount = Number(draft.amount);
+      const lines = [...document.querySelectorAll('#lines .line')];
+      if (Number.isFinite(amount) && amount > 0 && lines.length >= 2) {
+        lines[0].querySelector('[name="debit[]"]').value = amount.toFixed(2); lines[0].querySelector('[name="credit[]"]').value = ''; lines[0].querySelector('[name="description[]"]').value = draft.narration || '';
+        lines[1].querySelector('[name="credit[]"]').value = amount.toFixed(2); lines[1].querySelector('[name="debit[]"]').value = ''; lines[1].querySelector('[name="description[]"]').value = draft.narration || '';
+      }
+    };
+    const loadBrowserOcr = () => new Promise((resolve, reject) => {
+      if (window.Tesseract) return resolve(window.Tesseract);
+      const script = document.createElement('script'); script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'; script.async = true;
+      script.onload = () => window.Tesseract ? resolve(window.Tesseract) : reject(new Error('Browser OCR could not be loaded.'));
+      script.onerror = () => reject(new Error('Browser OCR needs an internet connection the first time it is used.'));
+      document.head.append(script);
+    });
+    const browserBillScan = async (bill) => {
+      billScanStatus.textContent = 'Scanning securely on this device…';
+      const Tesseract = await loadBrowserOcr(); let sources = [bill];
+      if (bill.type === 'application/pdf' || bill.name.toLowerCase().endsWith('.pdf')) {
+        const pdfjs = await import('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs');
+        pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs';
+        const pdf = await pdfjs.getDocument({data: new Uint8Array(await bill.arrayBuffer())}).promise; sources = [];
+        for (let pageNo = 1; pageNo <= Math.min(pdf.numPages, 3); pageNo += 1) { const page = await pdf.getPage(pageNo); const view = page.getViewport({scale: 2}); const canvas = document.createElement('canvas'); canvas.width = view.width; canvas.height = view.height; await page.render({canvasContext: canvas.getContext('2d'), viewport: view}).promise; sources.push(canvas); }
+      }
+      const text = [];
+      for (let index = 0; index < sources.length; index += 1) { billScanStatus.textContent = `Scanning page ${index + 1} of ${sources.length}…`; const result = await Tesseract.recognize(sources[index], 'eng'); text.push(result.data.text); }
+      const response = await fetch('/transactions/parse-bill', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ocr_text: text.join('\n')})});
+      const draft = await response.json(); if (!response.ok) throw new Error(draft.error || 'The bill could not be scanned.'); return draft;
+    };
     billScanTrigger.addEventListener('click', () => billScanFile.click());
     billScanFile.addEventListener('change', async () => {
       const bill = billScanFile.files?.[0]; if (!bill) return;
@@ -431,23 +466,9 @@ visibleDateNodes.forEach((node) => {
       try {
         const data = new FormData(); data.append('bill', bill);
         const response = await fetch('/transactions/scan-bill', {method: 'POST', body: data});
-        const draft = await response.json(); if (!response.ok) throw new Error(draft.error || 'The bill could not be scanned.');
-        const form = document.querySelector('#transaction-form');
-        const set = (selector, value) => { const field = form?.querySelector(selector); if (field && value) { field.value = value; field.dispatchEvent(new Event('change', {bubbles: true})); } };
-        set('[name="entry_date"]', draft.date); set('[name="reference"]', draft.reference); set('[name="memo"]', draft.narration);
-        let partyField = form?.querySelector('[name="party"]');
-        if (!partyField && form?.querySelector('.form-grid')) { const label = document.createElement('label'); label.innerHTML = 'Party<input name="party" placeholder="Customer, supplier, employee or other party">'; form.querySelector('.form-grid').append(label); partyField = label.querySelector('input'); }
-        if (partyField && draft.party) partyField.value = draft.party;
-        const amount = Number(draft.amount);
-        const lines = [...document.querySelectorAll('#lines .line')];
-        if (Number.isFinite(amount) && amount > 0 && lines.length >= 2) {
-          lines[0].querySelector('[name="debit[]"]').value = amount.toFixed(2);
-          lines[0].querySelector('[name="credit[]"]').value = '';
-          lines[0].querySelector('[name="description[]"]').value = draft.narration || '';
-          lines[1].querySelector('[name="credit[]"]').value = amount.toFixed(2);
-          lines[1].querySelector('[name="debit[]"]').value = '';
-          lines[1].querySelector('[name="description[]"]').value = draft.narration || '';
-        }
+        let draft = await response.json();
+        if (!response.ok) { if (response.status !== 503) throw new Error(draft.error || 'The bill could not be scanned.'); draft = await browserBillScan(bill); }
+        applyBillDraft(draft);
         billScanStatus.textContent = 'Bill details added. Select the debit and credit ledger accounts, review the values, then post the transaction.';
       } catch (error) { billScanStatus.textContent = error.message || 'The bill could not be scanned.'; }
       finally { billScanTrigger.disabled = false; billScanFile.value = ''; }

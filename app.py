@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import os
 import re
+import shutil
 import sqlite3
 import subprocess
 import tempfile
@@ -1715,6 +1716,8 @@ def scan_bill():
     if not is_pdf and not upload.filename.lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff")):
         return {"error": "Use a clear bill photo or PDF in JPG, PNG, WEBP, BMP, TIFF, or PDF format."}, 400
     tesseract_path = os.environ.get("TESSERACT_CMD", r"C:\\Program Files\\Tesseract-OCR\\tesseract.exe")
+    if not os.path.isfile(tesseract_path):
+        tesseract_path = shutil.which("tesseract") or tesseract_path
     try:
         from PIL import Image, ImageOps
         import pytesseract
@@ -1723,8 +1726,6 @@ def scan_bill():
     if pytesseract and os.path.isfile(tesseract_path):
         pytesseract.pytesseract.tesseract_cmd = tesseract_path
     if is_pdf:
-        if not (Image and pytesseract):
-            return {"error": "PDF scanning needs the project scanner packages. Restart the ERP with its project environment, then try again."}, 503
         try: import fitz
         except ModuleNotFoundError: return {"error": "PDF bill scanning needs PyMuPDF installed on this server."}, 503
     try:
@@ -1732,11 +1733,15 @@ def scan_bill():
             document = fitz.open(stream=upload.read(), filetype="pdf")
             if not document.page_count:
                 raise ValueError
-            pages = []
-            for page_number in range(min(document.page_count, 3)):
-                pixmap = document.load_page(page_number).get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
-                pages.append(Image.open(BytesIO(pixmap.tobytes("png"))).convert("L"))
-            transcript = "\n".join(pytesseract.image_to_string(page, config="--psm 6") for page in pages)
+            transcript = "\n".join(document.load_page(page_number).get_text("text") for page_number in range(min(document.page_count, 3))).strip()
+            if len(transcript) < 3:
+                if not (Image and pytesseract):
+                    return {"error": "This is a scanned PDF. PythonAnywhere needs a Tesseract OCR engine for scanned PDFs; upload a text PDF or use the local ERP scanner."}, 503
+                pages = []
+                for page_number in range(min(document.page_count, 3)):
+                    pixmap = document.load_page(page_number).get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+                    pages.append(Image.open(BytesIO(pixmap.tobytes("png"))).convert("L"))
+                transcript = "\n".join(pytesseract.image_to_string(page, config="--psm 6") for page in pages)
         elif Image and pytesseract:
             image = Image.open(upload.stream)
             image = ImageOps.exif_transpose(image).convert("L")
@@ -1763,6 +1768,22 @@ def scan_bill():
         return {"error": "No bill details were found. Try a clearer image."}, 422
     details = bill_scan_details(transcript)
     audit(company["id"], "Bill scanned", f"Reference: {details['reference'] or '-'} | Amount: {details['amount'] or '-'}")
+    db().commit()
+    return details
+
+
+@app.route("/transactions/parse-bill", methods=["POST"])
+def parse_bill_text():
+    """Turn browser-side OCR text into an editable transaction draft."""
+    company = company_required()
+    if not company:
+        return {"error": "Select a company first."}, 403
+    payload = request.get_json(silent=True) or {}
+    transcript = str(payload.get("ocr_text", "")).strip()
+    if len(transcript) < 3:
+        return {"error": "No bill details were found. Try a clearer bill."}, 422
+    details = bill_scan_details(transcript)
+    audit(company["id"], "Bill scanned in browser", f"Reference: {details['reference'] or '-'} | Amount: {details['amount'] or '-'}")
     db().commit()
     return details
 
