@@ -21,7 +21,7 @@
       <td><span class="party-type {{ party.party_type|lower }}">{{ party.party_type }}</span></td>
       <td class="party-contact">{% if party.email %}<span>{{ party.email }}</span>{% endif %}{% if party.mobile or party.phone %}<span>{{ party.mobile or party.phone }}</span>{% endif %}{% if not party.email and not party.mobile and not party.phone %}<span class="hint">No contact details added</span>{% endif %}</td>
       <td class="right">{{ you_owe|money if you_owe else '—' }}</td><td class="right">{{ they_owe|money if they_owe else '—' }}</td>
-      <td class="party-actions"><a href="{{ url_for('party_masters', view=view, q=search, edit=party.id) }}#party-editor" title="Edit {{ party.name }}">Edit</a>{% if view == 'archived' %}<form method="post"><input type="hidden" name="party_id" value="{{ party.id }}"><input type="hidden" name="action" value="restore"><button>Restore</button></form>{% else %}<form method="post"><input type="hidden" name="party_id" value="{{ party.id }}"><input type="hidden" name="action" value="archive"><button>Archive</button></form>{% endif %}</td>
+      <td class="party-actions"><a href="{{ url_for('party_transactions', party_id=party.id) }}">Transactions{% if party.transaction_count %} ({{ party.transaction_count }}){% endif %}</a><a href="{{ url_for('party_masters', view=view, q=search, edit=party.id) }}#party-editor" title="Edit {{ party.name }}">Edit</a>{% if view == 'archived' %}<form method="post"><input type="hidden" name="party_id" value="{{ party.id }}"><input type="hidden" name="action" value="restore"><button>Restore</button></form>{% else %}<form method="post"><input type="hidden" name="party_id" value="{{ party.id }}"><input type="hidden" name="action" value="archive"><button>Archive</button></form>{% endif %}</td>
     </tr>
   {% else %}<tr><td class="empty" colspan="6">No parties found. Add a party or record a transaction with a party name.</td></tr>{% endfor %}
   </tbody></table></div>
@@ -35,7 +35,7 @@
 {% endif %}
 
 {% if show_editor %}
-<section class="panel party-editor" id="party-editor"><div class="panel-title"><div><h2>{{ 'Edit party' if selected else 'New party' }}</h2><p class="hint">Contact details are available whenever you choose this party in a transaction.</p></div><a class="secondary" href="{{ url_for('party_masters', view=view, q=search) }}">Cancel</a></div>
+<section class="panel party-editor" id="party-editor"><div class="panel-title"><div><h2>{{ 'Edit party' if selected else 'New party' }}</h2><p class="hint">Contact details are available whenever you choose this party in a transaction.</p></div><div class="party-title-actions">{% if selected %}<a class="secondary" href="{{ url_for('party_transactions', party_id=selected.id) }}">View transactions</a>{% endif %}<a class="secondary" href="{{ url_for('party_masters', view=view, q=search) }}">Cancel</a></div></div>
   <form method="post" class="form-grid party-form"><input type="hidden" name="party_id" value="{{ selected.id if selected else '' }}"><input type="hidden" name="action" value="save">
     <label>Party name<input name="name" value="{{ selected.name if selected else '' }}" placeholder="Business or individual name" required></label>
     <label>Party type<select name="party_type">{% for type in ('Customer','Supplier','Both','Other') %}<option value="{{ type }}" {% if selected and selected.party_type == type %}selected{% endif %}>{{ type }}</option>{% endfor %}</select></label>

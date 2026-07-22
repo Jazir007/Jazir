@@ -976,6 +976,27 @@ def party_masters():
     return render_template("party_masters.html", parties=parties, categories=categories, active_category=active_category, selected=selected, show_editor=bool(selected or is_new), view=view, search=search, manage_categories=request.args.get("manage_categories") == "1")
 
 
+@app.route("/master/parties/<int:party_id>/transactions")
+def party_transactions(party_id):
+    """Show every posted ledger line associated with a master party."""
+    company = company_required()
+    if not company: return redirect(url_for("companies_dashboard"))
+    party = db().execute("SELECT * FROM parties WHERE id=? AND company_id=?", (party_id, company["id"])).fetchone()
+    if not party:
+        flash("Party not found.", "error")
+        return redirect(url_for("party_masters"))
+    rows = db().execute("""SELECT e.id,e.entry_date,e.document_type,e.document_no,e.reference,e.memo,e.payment_mode,
+        a.name account_name,l.description,l.debit,l.credit,l.currency,l.fx_rate,
+        l.debit*l.fx_rate base_debit,l.credit*l.fx_rate base_credit
+        FROM journal_entries e JOIN journal_lines l ON l.entry_id=e.id JOIN accounts a ON a.id=l.account_id
+        WHERE e.company_id=? AND lower(trim(COALESCE(e.party,'')))=lower(?)
+        ORDER BY e.entry_date DESC,e.id DESC,l.id""", (company["id"], party["name"])).fetchall()
+    total_debit = sum((Decimal(str(row["base_debit"] or 0)) for row in rows), Decimal("0"))
+    total_credit = sum((Decimal(str(row["base_credit"] or 0)) for row in rows), Decimal("0"))
+    transaction_count = len({row["id"] for row in rows})
+    return render_template("party_transactions.html", party=party, rows=rows, transaction_count=transaction_count, total_debit=total_debit, total_credit=total_credit)
+
+
 @app.route("/accounts-workspace")
 def accounts_workspace():
     company = company_required()
