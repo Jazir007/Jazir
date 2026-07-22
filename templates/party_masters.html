@@ -7,10 +7,11 @@
     <a class="{{ 'active' if view == 'all' else '' }}" href="{{ url_for('party_masters', view='all') }}">All</a>
     <a class="{{ 'active' if view == 'customers' else '' }}" href="{{ url_for('party_masters', view='customers') }}">Customers</a>
     <a class="{{ 'active' if view == 'suppliers' else '' }}" href="{{ url_for('party_masters', view='suppliers') }}">Suppliers</a>
+    {% for category in categories %}<a class="{{ 'active' if view == 'category' and active_category and active_category.id == category.id else '' }}" href="{{ url_for('party_masters', category=category.id) }}">{{ category.name }}</a>{% endfor %}
     <a class="{{ 'active' if view == 'archived' else '' }}" href="{{ url_for('party_masters', view='archived') }}">Archived</a>
   </div>
-  <div class="party-list-title"><div><h2>{{ 'Archived parties' if view == 'archived' else 'All parties' }}</h2><p class="hint">Manage contact details for customers, suppliers and other parties.</p></div><a class="secondary" href="{{ url_for('party_masters', new=1) }}">+ Add party</a></div>
-  <form method="get" class="party-search"><input type="hidden" name="view" value="{{ view }}"><label><span>⌕</span><input name="q" value="{{ search }}" placeholder="Search for a party, contact, email or mobile"></label><button class="secondary">Search</button>{% if search %}<a class="secondary" href="{{ url_for('party_masters', view=view) }}">Clear</a>{% endif %}</form>
+  <div class="party-list-title"><div><h2>{{ active_category.name if active_category else ('Archived parties' if view == 'archived' else 'All parties') }}</h2><p class="hint">Manage contact details for customers, suppliers and other parties.</p></div><div class="party-title-actions"><a class="secondary" href="{{ url_for('party_masters', manage_categories=1) }}">Manage tabs</a><a class="secondary" href="{{ url_for('party_masters', new=1) }}">+ Add party</a></div></div>
+  <form method="get" class="party-search"><input type="hidden" name="view" value="{{ view }}">{% if active_category %}<input type="hidden" name="category" value="{{ active_category.id }}">{% endif %}<label><span>⌕</span><input name="q" value="{{ search }}" placeholder="Search for a party, contact, email or mobile"></label><button class="secondary">Search</button>{% if search %}<a class="secondary" href="{{ url_for('party_masters', category=active_category.id if active_category else none, view=view) }}">Clear</a>{% endif %}</form>
   <div class="party-selection-note"><span>{{ parties|length }} {{ 'party' if parties|length == 1 else 'parties' }}</span><span>Click a party to view or edit its details.</span></div>
   <div class="party-table-wrap"><table class="party-table"><thead><tr><th>Party</th><th>Type</th><th>Contact details</th><th class="right">You owe</th><th class="right">They owe</th><th></th></tr></thead><tbody>
   {% for party in parties %}
@@ -26,11 +27,19 @@
   </tbody></table></div>
 </section>
 
+{% if manage_categories %}
+<section class="panel party-category-manager"><div class="panel-title"><div><h2>Custom party tabs</h2><p class="hint">Create tabs such as Employees, Contractors, Landlords or any grouping you need.</p></div><a class="secondary" href="{{ url_for('party_masters') }}">Done</a></div>
+  <form method="post" class="party-category-add"><input type="hidden" name="action" value="category_save"><label>New tab name<input name="category_name" placeholder="For example: Employees" required></label><button class="primary">Add tab</button></form>
+  <div class="party-category-list">{% for category in categories %}<form method="post"><input type="hidden" name="category_id" value="{{ category.id }}"><input name="category_name" value="{{ category.name }}" required><button class="secondary" name="action" value="category_save">Save</button><button class="danger" name="action" value="category_delete" onclick="return confirm('Delete this custom tab? The parties will be kept.')">Delete</button></form>{% else %}<p class="hint">No custom tabs created yet.</p>{% endfor %}</div>
+</section>
+{% endif %}
+
 {% if show_editor %}
 <section class="panel party-editor" id="party-editor"><div class="panel-title"><div><h2>{{ 'Edit party' if selected else 'New party' }}</h2><p class="hint">Contact details are available whenever you choose this party in a transaction.</p></div><a class="secondary" href="{{ url_for('party_masters', view=view, q=search) }}">Cancel</a></div>
   <form method="post" class="form-grid party-form"><input type="hidden" name="party_id" value="{{ selected.id if selected else '' }}"><input type="hidden" name="action" value="save">
     <label>Party name<input name="name" value="{{ selected.name if selected else '' }}" placeholder="Business or individual name" required></label>
     <label>Party type<select name="party_type">{% for type in ('Customer','Supplier','Both','Other') %}<option value="{{ type }}" {% if selected and selected.party_type == type %}selected{% endif %}>{{ type }}</option>{% endfor %}</select></label>
+    <label>Custom tab<select name="category_id"><option value="">No custom tab</option>{% for category in categories %}<option value="{{ category.id }}" {% if selected and selected.category_id == category.id %}selected{% endif %}>{{ category.name }}</option>{% endfor %}</select></label>
     <label>Group<input name="party_group" value="{{ selected.party_group if selected else '' }}" placeholder="Optional group, e.g. Retail customers"></label>
     <label>Contact person<input name="contact_person" value="{{ selected.contact_person if selected else '' }}"></label>
     <label>Email<input type="email" name="email" value="{{ selected.email if selected else '' }}"></label>

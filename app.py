@@ -177,13 +177,19 @@ def init_db():
       company_id INTEGER PRIMARY KEY, regions_enabled INTEGER NOT NULL DEFAULT 0,
       FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS party_categories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL, name TEXT NOT NULL,
+      active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(company_id,name COLLATE NOCASE), FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE
+    );
     CREATE TABLE IF NOT EXISTS parties (
       id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL, name TEXT NOT NULL,
       party_type TEXT NOT NULL DEFAULT 'Other' CHECK(party_type IN ('Customer','Supplier','Both','Other')),
       contact_person TEXT, email TEXT, mobile TEXT, phone TEXT, tax_number TEXT, address TEXT,
-      party_group TEXT, notes TEXT, active INTEGER NOT NULL DEFAULT 1, archived INTEGER NOT NULL DEFAULT 0,
+      party_group TEXT, category_id INTEGER, notes TEXT, active INTEGER NOT NULL DEFAULT 1, archived INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(company_id,name COLLATE NOCASE), FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE
+      UNIQUE(company_id,name COLLATE NOCASE), FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE,
+      FOREIGN KEY(category_id) REFERENCES party_categories(id) ON DELETE SET NULL
     );
     CREATE TABLE IF NOT EXISTS journal_entries (
       id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL, entry_date TEXT NOT NULL, document_type TEXT NOT NULL DEFAULT 'Journal', document_no TEXT, reference TEXT,
@@ -333,6 +339,9 @@ def init_db():
             connection.execute("ALTER TABLE journal_entries ADD COLUMN payment_mode TEXT")
         if "party" not in entry_columns:
             connection.execute("ALTER TABLE journal_entries ADD COLUMN party TEXT")
+        party_columns = [row[1] for row in connection.execute("PRAGMA table_info(parties)")]
+        if "category_id" not in party_columns:
+            connection.execute("ALTER TABLE parties ADD COLUMN category_id INTEGER")
         for name in ("accounting_tag_id", "region_tag_id"):
             if name not in entry_columns: connection.execute(f"ALTER TABLE journal_entries ADD COLUMN {name} INTEGER")
         tag_columns = [row[1] for row in connection.execute("PRAGMA table_info(accounting_tags)")]
@@ -887,9 +896,31 @@ def party_masters():
     connection = db()
     if request.method == "POST":
         party_id = request.form.get("party_id", type=int)
+        category_id = request.form.get("category_id", type=int)
         action = request.form.get("action", "save")
         party = connection.execute("SELECT * FROM parties WHERE id=? AND company_id=?", (party_id, company["id"])).fetchone() if party_id else None
         try:
+            if action.startswith("category_"):
+                category_id = request.form.get("category_id", type=int)
+                category = connection.execute("SELECT * FROM party_categories WHERE id=? AND company_id=?", (category_id, company["id"])).fetchone() if category_id else None
+                if action == "category_delete":
+                    if not category: raise ValueError
+                    connection.execute("UPDATE parties SET category_id=NULL,updated_at=CURRENT_TIMESTAMP WHERE company_id=? AND category_id=?", (company["id"], category_id))
+                    connection.execute("DELETE FROM party_categories WHERE id=?", (category_id,))
+                    audit(company["id"], "Custom party tab deleted", category["name"])
+                    connection.commit(); flash("Custom tab deleted. Parties were kept and moved to All.", "success")
+                else:
+                    category_name = request.form.get("category_name", "").strip()
+                    if not category_name: raise ValueError
+                    if category:
+                        connection.execute("UPDATE party_categories SET name=? WHERE id=?", (category_name, category_id))
+                        audit(company["id"], "Custom party tab updated", f"{category['name']} → {category_name}")
+                        message = "Custom tab updated."
+                    else:
+                        connection.execute("INSERT INTO party_categories(company_id,name) VALUES(?,?)", (company["id"], category_name))
+                        audit(company["id"], "Custom party tab added", category_name); message = "Custom tab added."
+                    connection.commit(); flash(message, "success")
+                return redirect(url_for("party_masters", manage_categories=1))
             if action in ("archive", "restore"):
                 if not party: raise ValueError
                 archived = int(action == "archive")
@@ -900,12 +931,17 @@ def party_masters():
             name = request.form.get("name", "").strip()
             party_type = request.form.get("party_type", "Other")
             if not name or party_type not in ("Customer", "Supplier", "Both", "Other"): raise ValueError
-            values = (name, party_type, request.form.get("contact_person", "").strip(), request.form.get("email", "").strip(), request.form.get("mobile", "").strip(), request.form.get("phone", "").strip(), request.form.get("tax_number", "").strip(), request.form.get("address", "").strip(), request.form.get("party_group", "").strip(), request.form.get("notes", "").strip(), int(bool(request.form.get("active"))))
+            if category_id and not connection.execute("SELECT 1 FROM party_categories WHERE id=? AND company_id=?", (category_id, company["id"])).fetchone(): raise ValueError
+            values = (name, party_type, request.form.get("contact_person", "").strip(), request.form.get("email", "").strip(), request.form.get("mobile", "").strip(), request.form.get("phone", "").strip(), request.form.get("tax_number", "").strip(), request.form.get("address", "").strip(), request.form.get("party_group", "").strip(), category_id, request.form.get("notes", "").strip(), int(bool(request.form.get("active"))))
             if party:
-                connection.execute("""UPDATE parties SET name=?,party_type=?,contact_person=?,email=?,mobile=?,phone=?,tax_number=?,address=?,party_group=?,notes=?,active=?,archived=0,updated_at=CURRENT_TIMESTAMP WHERE id=? AND company_id=?""", (*values, party_id, company["id"]))
-                audit(company["id"], "Party updated", name); message = "Party details updated."
+                connection.execute("""UPDATE parties SET name=?,party_type=?,contact_person=?,email=?,mobile=?,phone=?,tax_number=?,address=?,party_group=?,category_id=?,notes=?,active=?,archived=0,updated_at=CURRENT_TIMESTAMP WHERE id=? AND company_id=?""", (*values, party_id, company["id"]))
+                renamed_entries = 0
+                if party["name"] != name:
+                    renamed_entries = connection.execute("UPDATE journal_entries SET party=? WHERE company_id=? AND lower(trim(COALESCE(party,'')))=lower(?)", (name, company["id"], party["name"])).rowcount
+                audit(company["id"], "Party updated", f"{party['name']} → {name}" + (f" | {renamed_entries} transaction(s) updated" if renamed_entries else ""))
+                message = "Party details updated." + (f" {renamed_entries} transaction(s) now use the new party name." if renamed_entries else "")
             else:
-                connection.execute("""INSERT INTO parties(company_id,name,party_type,contact_person,email,mobile,phone,tax_number,address,party_group,notes,active) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""", (company["id"], *values))
+                connection.execute("""INSERT INTO parties(company_id,name,party_type,contact_person,email,mobile,phone,tax_number,address,party_group,category_id,notes,active) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""", (company["id"], *values))
                 audit(company["id"], "Party created", name); message = "Party added."
             connection.commit(); flash(message, "success")
             return redirect(url_for("party_masters"))
@@ -913,8 +949,12 @@ def party_masters():
             connection.rollback(); flash("Enter a unique party name and valid party type.", "error")
             return redirect(url_for("party_masters", edit=party_id) if party_id else url_for("party_masters", new=1))
     sync_transaction_parties(company["id"]); connection.commit()
+    categories = connection.execute("SELECT * FROM party_categories WHERE company_id=? ORDER BY lower(name)", (company["id"],)).fetchall()
     view = request.args.get("view", "all").lower()
-    if view not in ("all", "customers", "suppliers", "archived"): view = "all"
+    category_view_id = request.args.get("category", type=int)
+    active_category = next((category for category in categories if category["id"] == category_view_id), None)
+    if active_category: view = "category"
+    if view not in ("all", "customers", "suppliers", "archived", "category"): view = "all"
     search = request.args.get("q", "").strip()
     filters, params = ["p.company_id=?"], [company["id"]]
     if view == "archived": filters.append("p.archived=1")
@@ -922,6 +962,7 @@ def party_masters():
         filters.append("p.archived=0")
         if view == "customers": filters.append("p.party_type IN ('Customer','Both')")
         if view == "suppliers": filters.append("p.party_type IN ('Supplier','Both')")
+        if view == "category" and active_category: filters.append("p.category_id=?"); params.append(active_category["id"])
     if search:
         filters.append("(p.name LIKE ? OR p.contact_person LIKE ? OR p.email LIKE ? OR p.mobile LIKE ?)")
         params.extend([f"%{search}%"] * 4)
@@ -932,7 +973,7 @@ def party_masters():
       GROUP BY p.id ORDER BY lower(p.name)""", params).fetchall()
     selected = connection.execute("SELECT * FROM parties WHERE id=? AND company_id=?", (request.args.get("edit", type=int), company["id"])).fetchone() if request.args.get("edit") else None
     is_new = request.args.get("new") == "1"
-    return render_template("party_masters.html", parties=parties, selected=selected, show_editor=bool(selected or is_new), view=view, search=search)
+    return render_template("party_masters.html", parties=parties, categories=categories, active_category=active_category, selected=selected, show_editor=bool(selected or is_new), view=view, search=search, manage_categories=request.args.get("manage_categories") == "1")
 
 
 @app.route("/accounts-workspace")
