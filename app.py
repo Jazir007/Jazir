@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+from base64 import urlsafe_b64encode
 import json
 import os
 import re
@@ -18,6 +19,15 @@ from io import BytesIO
 
 from flask import Flask, Response, flash, g, redirect, render_template, request, send_from_directory, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
+
+try:
+    from cryptography.fernet import Fernet, InvalidToken
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+except ImportError:
+    Fernet = hashes = PBKDF2HMAC = None
+    class InvalidToken(Exception):
+        pass
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 DATABASE = os.path.join(ROOT, "ledger.db")
@@ -138,6 +148,33 @@ app.jinja_env.filters["money"] = money
 
 def rows_as_dicts(rows):
     return [dict(row) for row in rows]
+
+
+BACKUP_MAGIC = b"ZDJ1"
+
+
+def backup_cipher(password, salt):
+    """Create a password-derived cipher for a portable encrypted .zdj backup."""
+    if Fernet is None:
+        raise RuntimeError("Encrypted backups need the cryptography package. Install requirements.txt and restart the ERP.")
+    if len(password or "") < 8:
+        raise ValueError("Use a backup password of at least 8 characters")
+    key = urlsafe_b64encode(PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=1_200_000).derive(password.encode("utf-8")))
+    return Fernet(key)
+
+
+def encrypt_company_backup(payload, password):
+    salt = os.urandom(16)
+    return BACKUP_MAGIC + salt + backup_cipher(password, salt).encrypt(payload)
+
+
+def decrypt_company_backup(contents, password):
+    if len(contents) < len(BACKUP_MAGIC) + 17 or not contents.startswith(BACKUP_MAGIC):
+        raise ValueError("Choose a valid encrypted .zdj backup file")
+    try:
+        return backup_cipher(password, contents[4:20]).decrypt(contents[20:])
+    except InvalidToken:
+        raise ValueError("The backup password is incorrect, or this .zdj file was changed")
 
 
 def init_db():
@@ -1006,31 +1043,33 @@ def company_backup_restore():
     return render_template("company_backup.html", backup_companies=visible_companies())
 
 
-@app.route("/company-backup/<int:company_id>/download")
+@app.route("/company-backup/<int:company_id>/download", methods=["POST"])
 def download_company_backup(company_id):
     user = signed_in_user()
     company = db().execute("SELECT * FROM companies WHERE id=? AND name <> 'Imported company'", (company_id,)).fetchone()
     if not user or not company or not user_company_access(user, company_id):
         flash("You do not have access to that company backup.", "error")
         return redirect(url_for("company_backup_restore"))
-    payload = json.dumps(company_backup_payload(company["id"]), ensure_ascii=False, indent=2).encode("utf-8")
-    output = BytesIO()
-    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive: archive.writestr("company_backup.json", payload)
+    try:
+        payload = json.dumps(company_backup_payload(company["id"]), ensure_ascii=False, indent=2).encode("utf-8")
+        encrypted_backup = encrypt_company_backup(payload, request.form.get("backup_password", ""))
+    except (ValueError, RuntimeError) as error:
+        flash(str(error), "error")
+        return redirect(url_for("company_backup_restore"))
     filename = re.sub(r"[^A-Za-z0-9_-]+", "-", company["name"]).strip("-") or "company"
-    return Response(output.getvalue(), mimetype="application/zip", headers={"Content-Disposition": f'attachment; filename="zedjer-{filename}-backup.zip"'})
+    return Response(encrypted_backup, mimetype="application/octet-stream", headers={"Content-Disposition": f'attachment; filename="zedjer-{filename}-backup.zdj"'})
 
 
-@app.route("/master/company-backup/restore", methods=["POST"])
+@app.route("/company-backup/restore", methods=["POST"])
 def restore_company_backup():
     if not signed_in_user(): return redirect(url_for("sign_in"))
     upload = request.files.get("backup_file")
     restored_name = request.form.get("restored_name", "").strip()
     try:
         if not upload or not upload.filename: raise ValueError("Choose a Zedjer backup file")
-        with zipfile.ZipFile(upload.stream) as archive:
-            info = archive.getinfo("company_backup.json")
-            if info.file_size > 50 * 1024 * 1024: raise ValueError("Backup file is too large")
-            payload = json.loads(archive.read("company_backup.json").decode("utf-8"))
+        contents = upload.read()
+        if len(contents) > 50 * 1024 * 1024: raise ValueError("Backup file is too large")
+        payload = json.loads(decrypt_company_backup(contents, request.form.get("backup_password", "")).decode("utf-8"))
         connection = db()
         company_id = restore_company_backup_data(payload, restored_name, signed_in_user())
         connection.commit()
@@ -1038,7 +1077,7 @@ def restore_company_backup():
         session.pop("company_user_authenticated_for", None)
         flash("Company restored successfully. It was created as a separate company.", "success")
         return redirect(url_for("companies_dashboard"))
-    except (KeyError, ValueError, TypeError, zipfile.BadZipFile, json.JSONDecodeError, sqlite3.IntegrityError) as error:
+    except (KeyError, ValueError, TypeError, RuntimeError, json.JSONDecodeError, sqlite3.IntegrityError) as error:
         db().rollback(); flash(f"Restore could not be completed: {error}", "error")
     return redirect(url_for("company_backup_restore"))
 
