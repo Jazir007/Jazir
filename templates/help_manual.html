@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+{% block heading %}Help &amp; user manual{% endblock %}
+{% block header_action %}<a class="secondary" href="{{ url_for('workspace_settings') }}">Settings</a>{% endblock %}
+{% block content %}
+<section class="panel manual-intro"><h2>Your Zedjer Books guide</h2><p>Use the top-edge search to open any section quickly. Your work is organised by company, so each company retains completely separate records.</p></section>
+<section class="manual-grid">
+  <article><b>1. Start with a company</b><p>Create or select a company from the Company dashboard. Set its financial year, currency and company details before posting entries.</p></article>
+  <article><b>2. Record transactions</b><p>Use New transaction to enter balanced debit and credit lines. Select the document type, document number, party, currency and narration.</p></article>
+  <article><b>3. Maintain accounts &amp; parties</b><p>Chart of Accounts manages your ledgers and opening balances. Party Masters manages customers, suppliers and other contacts used in transactions.</p></article>
+  <article><b>4. Use reports</b><p>Reports includes Trial Balance, Financial Position, Income Statement, Cash Flow, Day Book, Transaction Register and General Ledger. Choose periods and export when needed.</p></article>
+  <article><b>5. Bank &amp; Cash</b><p>Import bank statements, compare transactions and reconcile matches. Unreconciled statement entries can be converted into accounting transactions.</p></article>
+  <article><b>6. Master controls</b><p>Manage currencies, document numbering, users, activity logs, analysis setup, account subgroups and company profile details.</p></article>
+  <article><b>7. Backup safely</b><p>Company Backup &amp; Restore downloads a password-encrypted .zdj backup. Restore always creates a separate company and does not overwrite an existing one.</p></article>
+  <article><b>8. Feature settings</b><p>Settings lets you simplify the workspace by switching optional areas on or off. Existing data remains intact while a feature is disabled.</p></article>
+</section>
+{% endblock %}

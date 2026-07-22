@@ -1,0 +1,9 @@
+{% extends 'base.html' %}
+{% block heading %}Search Zedjer Books{% endblock %}
+{% block content %}
+<section class="panel search-page">
+  <form class="workspace-search-form" action="{{ url_for('workspace_search') }}" method="get"><input type="search" name="q" value="{{ query }}" autofocus placeholder="Search reports, masters, ledgers and workspace sections"><button class="primary">Search</button></form>
+  {% if query %}<p class="hint">Results for <strong>{{ query }}</strong></p>{% else %}<p class="hint">Search any report, master, account workspace or feature.</p>{% endif %}
+  {% if results %}<div class="search-results">{% for item in results %}<a href="{{ item.url }}"><span>{{ item.section }}</span><b>{{ item.title }}</b><small>{{ item.description }}</small><i>Open →</i></a>{% endfor %}</div>{% else %}<div class="empty">No matching ERP section was found.</div>{% endif %}
+</section>
+{% endblock %}

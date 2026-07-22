@@ -220,6 +220,10 @@ def init_db():
       company_id INTEGER PRIMARY KEY, regions_enabled INTEGER NOT NULL DEFAULT 0,
       FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS feature_settings (
+      company_id INTEGER NOT NULL, feature_key TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1,
+      PRIMARY KEY(company_id,feature_key), FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE
+    );
     CREATE TABLE IF NOT EXISTS party_categories (
       id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL, name TEXT NOT NULL,
       active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -474,6 +478,69 @@ def active_company():
     return db().execute("SELECT * FROM companies WHERE id=? AND name <> 'Imported company'", (company_id,)).fetchone()
 
 
+WORKSPACE_FEATURES = (
+    ("party_masters", "Party masters", "Customers, suppliers and contacts"),
+    ("banking", "Bank & cash", "Bank statements and reconciliation"),
+    ("investments", "Investment analysis", "Stock holdings and profit/loss"),
+    ("loan_analysis", "Loan analysis", "Loan schedules and amortisation"),
+    ("analysis_tags", "Analysis categories & tags", "Tagged transaction analysis"),
+    ("regions", "Region tracking", "Region fields and region analysis"),
+    ("bill_scanning", "Bill scanning", "Scan bills to prepare transactions"),
+)
+
+
+def feature_states(company):
+    if not company:
+        return {key: False for key, _name, _description in WORKSPACE_FEATURES}
+    stored = {row["feature_key"]: bool(row["enabled"]) for row in db().execute("SELECT feature_key,enabled FROM feature_settings WHERE company_id=?", (company["id"],)).fetchall()}
+    return {key: stored.get(key, True) for key, _name, _description in WORKSPACE_FEATURES}
+
+
+def workspace_search_items(company):
+    flags = feature_states(company)
+    items = [
+        ("Business dashboard", "Workspace", "Dashboard, profit, expenses and cash flow", "/analysis", None),
+        ("Transactions", "Workspace", "Create and manage accounting entries", "/transactions", None),
+        ("Chart of accounts", "Workspace", "Accounts, ledgers, groups and balances", "/accounts", None),
+        ("Accounts book", "Workspace", "General ledger, day book and transaction register", "/accounts-workspace", None),
+        ("Reports", "Reports", "Financial reports and statements", "/reports", None),
+        ("Trial balance", "Reports", "Opening, current and closing balances", "/reports/trial-balance", None),
+        ("Financial position", "Reports", "Assets, liabilities and equity", "/reports/financial-position", None),
+        ("Income statement", "Reports", "Income, expenses and profit", "/reports/income-statement", None),
+        ("Cash flow", "Reports", "Cash, bank and card movement", "/reports/cash-flow", None),
+        ("General ledger", "Accounts book", "Detailed ledger transactions", "/reports/general-ledger", None),
+        ("Day book", "Accounts book", "Daily transaction listing", "/reports/day-book", None),
+        ("Transaction register", "Accounts book", "Transactions by document type", "/accounts-book/transaction-register", None),
+        ("Master control centre", "Master", "Company and accounting settings", "/master", None),
+        ("Currencies", "Master", "Currencies and exchange rates", "/currencies", None),
+        ("Account subgroups", "Master", "Subgroups under account groups", "/account-subgroups", None),
+        ("Document numbering", "Master", "Document number series", f"/companies/{company['id']}/document-numbering", None),
+        ("User authorisations", "Master", "Company users and access levels", "/master/users", None),
+        ("User logs", "Master", "Company activity records", "/master/activity", None),
+        ("Company backup & restore", "Company", "Encrypted local company backups", "/company-backup", None),
+        ("Settings", "Workspace", "Enable or disable ERP features", "/settings", None),
+        ("Help & user manual", "Workspace", "Guidance for every ERP feature", "/help", None),
+        ("Party masters", "Master", "Customers, suppliers and contact details", "/master/parties", "party_masters"),
+        ("Bank & cash", "Workspace", "Bank accounts and reconciliation", "/banking", "banking"),
+        ("Investment analysis", "Accounts book", "Stocks, holdings and investment P&L", "/investment-analysis", "investments"),
+        ("Loan amortisation analysis", "Accounts book", "Loan schedules and repayment analysis", "/loan-amortization", "loan_analysis"),
+        ("Analysis categories & tags", "Master", "Tag setup and tagged transaction reports", "/accounting-tags", "analysis_tags"),
+        ("Region tags", "Master", "Region setup and tracking", "/region-tags", "regions"),
+    ]
+    return [{"title": title, "section": section, "description": description, "url": url} for title, section, description, url, feature in items if not feature or flags.get(feature, True)]
+
+
+FEATURE_ENDPOINTS = {
+    "party_masters": "party_masters", "party_transactions": "party_masters",
+    "banking": "banking", "save_bank_statement_opening": "banking", "edit_bank_statement_line": "banking", "delete_bank_statement_line": "banking", "delete_selected_bank_statement_lines": "banking", "create_and_reconcile": "banking", "create_transaction_from_statement": "banking", "import_bank_statement": "banking", "import_bank_statement_sample": "banking",
+    "investment_analysis": "investments", "investment_import": "investments", "investment_analysis_sample": "investments",
+    "loan_amortization": "loan_analysis", "loan_schedule_import_sample": "loan_analysis",
+    "accounting_tags": "analysis_tags", "accounting_tags_json": "analysis_tags", "analysis_categories": "analysis_tags", "edit_analysis_category": "analysis_tags", "edit_analysis_tag": "analysis_tags", "delete_analysis_category": "analysis_tags", "delete_analysis_tag": "analysis_tags", "analysis_tag_report": "analysis_tags", "account_tags_json": "analysis_tags", "account_analysis_categories_json": "analysis_tags",
+    "region_tags": "regions", "transaction_dimensions_json": "regions", "transaction_dimensions_for_entry": "regions",
+    "scan_bill": "bill_scanning", "parse_bill_text": "bill_scanning",
+}
+
+
 def signed_in_user():
     """Return the main Zedjer user stored in this browser session."""
     user_id = session.get("app_user_id")
@@ -703,7 +770,7 @@ def movements(company_id, start, end):
 @app.context_processor
 def global_values():
     company = active_company()
-    return {"active_company": company, "companies": visible_companies(), "currencies": currency_list(company), "base_currency": company["base_currency"] if company else "", "today": date.today().isoformat(), "today_iso": date.today().isoformat(), "current_app_user": signed_in_user()}
+    return {"active_company": company, "companies": visible_companies(), "currencies": currency_list(company), "base_currency": company["base_currency"] if company else "", "today": date.today().isoformat(), "today_iso": date.today().isoformat(), "current_app_user": signed_in_user(), "feature_flags": feature_states(company), "quick_search_items": workspace_search_items(company) if company else []}
 
 
 @app.route("/")
@@ -842,6 +909,16 @@ def require_main_sign_in():
     return None
 
 
+@app.before_request
+def enforce_feature_settings():
+    """Keep optional company modules unavailable when their feature switch is off."""
+    feature = FEATURE_ENDPOINTS.get(request.endpoint)
+    company = active_company()
+    if feature and company and not feature_states(company).get(feature, True):
+        flash("This feature is currently disabled in Workspace settings.", "error")
+        return redirect(url_for("workspace_settings"))
+
+
 @app.route("/companies")
 def companies_dashboard():
     return render_template("companies.html", show_form=False)
@@ -922,6 +999,42 @@ def master():
     company = company_required()
     if not company: return redirect(url_for("companies_dashboard"))
     return render_template("master.html")
+
+
+@app.route("/search")
+def workspace_search():
+    company = company_required()
+    if not company: return redirect(url_for("companies_dashboard"))
+    query = request.args.get("q", "").strip()
+    terms = [term for term in query.casefold().split() if term]
+    results = workspace_search_items(company)
+    if terms:
+        results = [item for item in results if all(term in f"{item['title']} {item['section']} {item['description']}".casefold() for term in terms)]
+    return render_template("workspace_search.html", query=query, results=results)
+
+
+@app.route("/settings", methods=["GET", "POST"])
+def workspace_settings():
+    company = company_required()
+    if not company: return redirect(url_for("companies_dashboard"))
+    if request.method == "POST":
+        connection = db()
+        for key, _name, _description in WORKSPACE_FEATURES:
+            connection.execute("INSERT INTO feature_settings(company_id,feature_key,enabled) VALUES(?,?,?) ON CONFLICT(company_id,feature_key) DO UPDATE SET enabled=excluded.enabled", (company["id"], key, int(bool(request.form.get(key)))))
+        regions_enabled = int(bool(request.form.get("regions")))
+        connection.execute("INSERT INTO company_settings(company_id,regions_enabled) VALUES(?,?) ON CONFLICT(company_id) DO UPDATE SET regions_enabled=excluded.regions_enabled", (company["id"], regions_enabled))
+        audit(company["id"], "Workspace settings updated", "Feature visibility and availability updated")
+        connection.commit()
+        flash("Feature settings saved.", "success")
+        return redirect(url_for("workspace_settings"))
+    return render_template("workspace_settings.html", features=WORKSPACE_FEATURES, states=feature_states(company))
+
+
+@app.route("/help")
+def help_manual():
+    company = company_required()
+    if not company: return redirect(url_for("companies_dashboard"))
+    return render_template("help_manual.html", features=WORKSPACE_FEATURES, states=feature_states(company))
 
 
 def company_backup_payload(company_id):

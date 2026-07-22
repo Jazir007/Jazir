@@ -1,0 +1,8 @@
+{% extends 'base.html' %}
+{% block heading %}Workspace settings{% endblock %}
+{% block header_action %}<a class="secondary" href="{{ url_for('help_manual') }}">Help &amp; user manual</a>{% endblock %}
+{% block content %}
+<section class="panel"><h2>Feature controls</h2><p class="hint">Turn workspace features on or off for this company. Disabled items are removed from quick search and quick-access navigation; existing records stay safely stored.</p>
+  <form method="post" class="feature-settings">{% for key,name,description in features %}<label class="feature-toggle"><span><b>{{ name }}</b><small>{{ description }}</small></span><input type="checkbox" name="{{ key }}" {% if states.get(key) %}checked{% endif %}><i aria-hidden="true"></i></label>{% endfor %}<div class="actions"><a class="secondary" href="{{ url_for('analysis') }}">Cancel</a><button class="primary">Save settings</button></div></form>
+</section>
+{% endblock %}
