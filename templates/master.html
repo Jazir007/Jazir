@@ -1,6 +1,7 @@
 {% extends 'base.html' %}
 {% block heading %}Master{% endblock %}
 {% block content %}
-<section class="panel"><h2>Master control centre</h2><p class="hint">Manage company settings, accounting structure, users and activity records.</p><div class="master-grid">
+<section class="panel"><h2>Master control centre</h2><p class="hint">Manage company settings, accounting structure, parties, users and activity records.</p><div class="master-grid">
+<a href="{{ url_for('party_masters') }}"><b>Party masters</b><span>Customers, suppliers and contact details</span></a>
 <a href="{{ url_for('edit_company', company_id=active_company.id) }}"><b>Company profile</b><span>Company details and edit PIN</span></a><a href="{{ url_for('user_authorisations') }}"><b>User authorisations</b><span>Users, passwords, access levels and contacts</span></a><a href="{{ url_for('activity_records') }}"><b>Activity records</b><span>Login, logout and transaction history</span></a><a href="{{ url_for('document_numbering', company_id=active_company.id) }}"><b>Document numbering</b><span>Series and duplicate number controls</span></a><a href="{{ url_for('currencies') }}"><b>Currencies</b><span>Exchange rates and currency settings</span></a><a href="{{ url_for('accounts') }}"><b>Chart of accounts</b><span>Ledgers, balances and groups</span></a><a href="{{ url_for('account_subgroups') }}"><b>Account subgroups</b><span>Organise ledgers under groups</span></a><a href="{{ url_for('accounting_tags') }}"><b>Analysis categories & tags</b><span>Manage categories, tags and ledger applicability</span></a><a href="{{ url_for('region_tags') }}"><b>Region tags</b><span>Enable regions and maintain the region list</span></a></div></section>
 {% endblock %}

@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+{% block heading %}Party masters{% endblock %}
+{% block header_action %}<a class="primary" href="{{ url_for('party_masters', new=1) }}">+ New party</a>{% endblock %}
+{% block content %}
+<section class="panel party-master-panel">
+  <div class="party-tabs" role="navigation" aria-label="Party views">
+    <a class="{{ 'active' if view == 'all' else '' }}" href="{{ url_for('party_masters', view='all') }}">All</a>
+    <a class="{{ 'active' if view == 'customers' else '' }}" href="{{ url_for('party_masters', view='customers') }}">Customers</a>
+    <a class="{{ 'active' if view == 'suppliers' else '' }}" href="{{ url_for('party_masters', view='suppliers') }}">Suppliers</a>
+    <a class="{{ 'active' if view == 'archived' else '' }}" href="{{ url_for('party_masters', view='archived') }}">Archived</a>
+  </div>
+  <div class="party-list-title"><div><h2>{{ 'Archived parties' if view == 'archived' else 'All parties' }}</h2><p class="hint">Manage contact details for customers, suppliers and other parties.</p></div><a class="secondary" href="{{ url_for('party_masters', new=1) }}">+ Add party</a></div>
+  <form method="get" class="party-search"><input type="hidden" name="view" value="{{ view }}"><label><span>⌕</span><input name="q" value="{{ search }}" placeholder="Search for a party, contact, email or mobile"></label><button class="secondary">Search</button>{% if search %}<a class="secondary" href="{{ url_for('party_masters', view=view) }}">Clear</a>{% endif %}</form>
+  <div class="party-selection-note"><span>{{ parties|length }} {{ 'party' if parties|length == 1 else 'parties' }}</span><span>Click a party to view or edit its details.</span></div>
+  <div class="party-table-wrap"><table class="party-table"><thead><tr><th>Party</th><th>Type</th><th>Contact details</th><th class="right">You owe</th><th class="right">They owe</th><th></th></tr></thead><tbody>
+  {% for party in parties %}
+    {% set you_owe = [party.credits - party.debits, 0]|max %}{% set they_owe = [party.debits - party.credits, 0]|max %}
+    <tr>
+      <td><a class="party-name" href="{{ url_for('party_masters', view=view, q=search, edit=party.id) }}"><span class="party-avatar">{{ party.name[:2].upper() }}</span><span><b>{{ party.name }}</b><small>{% if party.contact_person %}{{ party.contact_person }}{% elif party.party_group %}{{ party.party_group }}{% else %}{{ party.transaction_count }} transaction{{ '' if party.transaction_count == 1 else 's' }}{% endif %}</small></span></a></td>
+      <td><span class="party-type {{ party.party_type|lower }}">{{ party.party_type }}</span></td>
+      <td class="party-contact">{% if party.email %}<span>{{ party.email }}</span>{% endif %}{% if party.mobile or party.phone %}<span>{{ party.mobile or party.phone }}</span>{% endif %}{% if not party.email and not party.mobile and not party.phone %}<span class="hint">No contact details added</span>{% endif %}</td>
+      <td class="right">{{ you_owe|money if you_owe else '—' }}</td><td class="right">{{ they_owe|money if they_owe else '—' }}</td>
+      <td class="party-actions"><a href="{{ url_for('party_masters', view=view, q=search, edit=party.id) }}" title="Edit {{ party.name }}">Edit</a>{% if view == 'archived' %}<form method="post"><input type="hidden" name="party_id" value="{{ party.id }}"><input type="hidden" name="action" value="restore"><button>Restore</button></form>{% else %}<form method="post"><input type="hidden" name="party_id" value="{{ party.id }}"><input type="hidden" name="action" value="archive"><button>Archive</button></form>{% endif %}</td>
+    </tr>
+  {% else %}<tr><td class="empty" colspan="6">No parties found. Add a party or record a transaction with a party name.</td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
+
+{% if show_editor %}
+<section class="panel party-editor" id="party-editor"><div class="panel-title"><div><h2>{{ 'Edit party' if selected else 'New party' }}</h2><p class="hint">Contact details are available whenever you choose this party in a transaction.</p></div><a class="secondary" href="{{ url_for('party_masters', view=view, q=search) }}">Cancel</a></div>
+  <form method="post" class="form-grid party-form"><input type="hidden" name="party_id" value="{{ selected.id if selected else '' }}"><input type="hidden" name="action" value="save">
+    <label>Party name<input name="name" value="{{ selected.name if selected else '' }}" placeholder="Business or individual name" required></label>
+    <label>Party type<select name="party_type">{% for type in ('Customer','Supplier','Both','Other') %}<option value="{{ type }}" {% if selected and selected.party_type == type %}selected{% endif %}>{{ type }}</option>{% endfor %}</select></label>
+    <label>Group<input name="party_group" value="{{ selected.party_group if selected else '' }}" placeholder="Optional group, e.g. Retail customers"></label>
+    <label>Contact person<input name="contact_person" value="{{ selected.contact_person if selected else '' }}"></label>
+    <label>Email<input type="email" name="email" value="{{ selected.email if selected else '' }}"></label>
+    <label>Mobile number<input name="mobile" value="{{ selected.mobile if selected else '' }}"></label>
+    <label>Other phone<input name="phone" value="{{ selected.phone if selected else '' }}"></label>
+    <label>Tax / VAT number<input name="tax_number" value="{{ selected.tax_number if selected else '' }}"></label>
+    <label class="wide-field">Address<textarea name="address" rows="2">{{ selected.address if selected else '' }}</textarea></label>
+    <label class="wide-field">Notes<textarea name="notes" rows="2" placeholder="Optional notes for this party">{{ selected.notes if selected else '' }}</textarea></label>
+    <label class="check party-active"><input type="checkbox" name="active" {% if not selected or selected.active %}checked{% endif %}>Active party</label>
+    <div class="actions"><a class="secondary" href="{{ url_for('party_masters', view=view, q=search) }}">Cancel</a><button class="primary">{{ 'Save changes' if selected else 'Add party' }}</button></div>
+  </form>
+</section>
+{% endif %}
+{% endblock %}
