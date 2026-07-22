@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+{% block heading %}Company backup &amp; restore{% endblock %}
+{% block header_action %}<a class="secondary" href="{{ url_for('companies_dashboard') }}">Back to companies</a>{% endblock %}
+{% block content %}
+<section class="panel">
+  <h2>Local backup</h2>
+  <p class="hint">Choose a company to download a complete local copy. Each backup includes company details, accounts, parties, transactions, bank data, loans, investments, currencies, settings and activity records.</p>
+  {% if backup_companies %}
+  <div class="table-wrap"><table><thead><tr><th>Company</th><th>Financial year</th><th></th></tr></thead><tbody>
+    {% for company in backup_companies %}<tr><td><b>{{ company.name }}</b></td><td>{{ company.financial_year_start }} — {{ company.financial_year_end }}</td><td class="right"><a class="primary" href="{{ url_for('download_company_backup', company_id=company.id) }}">Download backup</a></td></tr>{% endfor %}
+  </tbody></table></div>
+  {% else %}<div class="empty">No companies are available to back up yet.</div>{% endif %}
+</section>
+<section class="panel">
+  <h2>Restore a local backup</h2>
+  <p class="hint">Restoring creates a separate company with all records from the backup. Your existing companies and their data will not be changed.</p>
+  <form class="form-grid" action="{{ url_for('restore_company_backup') }}" method="post" enctype="multipart/form-data">
+    <label>Backup file<input type="file" name="backup_file" accept=".zip,.zedjer" required></label>
+    <label>New company name<input type="text" name="restored_name" placeholder="e.g. Jazir &amp; Co - restored" required></label>
+    <div class="wide hint">Keep the downloaded backup file private. It can contain financial records and user access settings.</div>
+    <div class="wide"><button class="primary" type="submit">Restore as a new company</button></div>
+  </form>
+</section>
+{% endblock %}

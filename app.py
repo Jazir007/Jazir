@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import csv
+import json
 import os
 import re
 import shutil
 import sqlite3
 import subprocess
 import tempfile
+import zipfile
 from contextlib import closing
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -132,6 +134,10 @@ def close_db(_error=None):
 
 def money(value): return f"{Decimal(str(value or 0)):,.2f}"
 app.jinja_env.filters["money"] = money
+
+
+def rows_as_dicts(rows):
+    return [dict(row) for row in rows]
 
 
 def init_db():
@@ -879,6 +885,162 @@ def master():
     company = company_required()
     if not company: return redirect(url_for("companies_dashboard"))
     return render_template("master.html")
+
+
+def company_backup_payload(company_id):
+    """Create a complete, company-scoped export without writing server files."""
+    connection = db()
+    company = connection.execute("SELECT * FROM companies WHERE id=?", (company_id,)).fetchone()
+    data = {
+        "account_subgroups": rows_as_dicts(connection.execute("SELECT * FROM account_subgroups WHERE company_id=?", (company_id,))),
+        "analysis_categories": rows_as_dicts(connection.execute("SELECT * FROM analysis_categories WHERE company_id=?", (company_id,))),
+        "accounting_tags": rows_as_dicts(connection.execute("SELECT * FROM accounting_tags WHERE company_id=?", (company_id,))),
+        "region_tags": rows_as_dicts(connection.execute("SELECT * FROM region_tags WHERE company_id=?", (company_id,))),
+        "currencies": rows_as_dicts(connection.execute("SELECT * FROM currencies WHERE company_id=?", (company_id,))),
+        "document_series": rows_as_dicts(connection.execute("SELECT * FROM document_series WHERE company_id=?", (company_id,))),
+        "company_settings": rows_as_dicts(connection.execute("SELECT * FROM company_settings WHERE company_id=?", (company_id,))),
+        "accounts": rows_as_dicts(connection.execute("SELECT * FROM accounts WHERE company_id=?", (company_id,))),
+        "party_categories": rows_as_dicts(connection.execute("SELECT * FROM party_categories WHERE company_id=?", (company_id,))),
+        "parties": rows_as_dicts(connection.execute("SELECT * FROM parties WHERE company_id=?", (company_id,))),
+        "opening_balances": rows_as_dicts(connection.execute("SELECT * FROM opening_balances WHERE company_id=?", (company_id,))),
+        "journal_entries": rows_as_dicts(connection.execute("SELECT * FROM journal_entries WHERE company_id=?", (company_id,))),
+        "loan_profiles": rows_as_dicts(connection.execute("SELECT * FROM loan_profiles WHERE company_id=?", (company_id,))),
+        "bank_statement_openings": rows_as_dicts(connection.execute("SELECT * FROM bank_statement_openings WHERE company_id=?", (company_id,))),
+        "company_users": rows_as_dicts(connection.execute("SELECT * FROM company_users WHERE company_id=?", (company_id,))),
+        "stock_transactions": rows_as_dicts(connection.execute("SELECT * FROM stock_transactions WHERE company_id=?", (company_id,))),
+        "activity_log": rows_as_dicts(connection.execute("SELECT * FROM activity_log WHERE company_id=?", (company_id,))),
+    }
+    data["account_analysis_categories"] = rows_as_dicts(connection.execute("SELECT l.* FROM account_analysis_categories l JOIN accounts a ON a.id=l.account_id WHERE a.company_id=?", (company_id,)))
+    data["account_tag_links"] = rows_as_dicts(connection.execute("SELECT l.* FROM account_tag_links l JOIN accounts a ON a.id=l.account_id WHERE a.company_id=?", (company_id,)))
+    data["journal_lines"] = rows_as_dicts(connection.execute("SELECT l.* FROM journal_lines l JOIN journal_entries e ON e.id=l.entry_id WHERE e.company_id=?", (company_id,)))
+    data["loan_repayments"] = rows_as_dicts(connection.execute("SELECT r.* FROM loan_repayments r JOIN accounts a ON a.id=r.account_id WHERE a.company_id=?", (company_id,)))
+    data["bank_statement_lines"] = rows_as_dicts(connection.execute("SELECT * FROM bank_statement_lines WHERE company_id=?", (company_id,)))
+    return {"format": "Zedjer Company Backup", "version": 1, "created_at": datetime.utcnow().isoformat(timespec="seconds") + "Z", "company": dict(company), "data": data}
+
+
+def restore_company_backup_data(payload, restored_name, app_user):
+    """Restore a backup as a new company, remapping every company-scoped ID."""
+    if payload.get("format") != "Zedjer Company Backup" or not isinstance(payload.get("company"), dict) or not isinstance(payload.get("data"), dict):
+        raise ValueError("Not a valid Zedjer company backup")
+    source, source_data, connection = payload["company"], payload["data"], db()
+    if not restored_name or connection.execute("SELECT 1 FROM companies WHERE lower(name)=lower(?)", (restored_name,)).fetchone():
+        raise ValueError("Use a new, unique company name for the restored company")
+    company_fields = ("legal_name", "tax_number", "address", "mobile", "email", "base_currency", "document_number_mode", "document_prefix", "next_document_number", "financial_year_start", "financial_year_end", "auth_enabled", "edit_pin")
+    values = [restored_name] + [source.get(field) for field in company_fields]
+    cursor = connection.execute(f"INSERT INTO companies(name,{','.join(company_fields)}) VALUES({','.join('?' for _ in values)})", values)
+    company_id = cursor.lastrowid
+    maps = {"subgroup": {}, "category": {}, "tag": {}, "region": {}, "account": {}, "party_category": {}, "party": {}, "entry": {}, "line": {}, "stock": {}}
+    for row in source_data.get("account_subgroups", []):
+        cursor = connection.execute("INSERT INTO account_subgroups(company_id,category,name) VALUES(?,?,?)", (company_id, row.get("category"), row.get("name")))
+        maps["subgroup"][row["id"]] = cursor.lastrowid
+    for row in source_data.get("analysis_categories", []):
+        cursor = connection.execute("INSERT INTO analysis_categories(company_id,name) VALUES(?,?)", (company_id, row.get("name")))
+        maps["category"][row["id"]] = cursor.lastrowid
+    for row in source_data.get("accounting_tags", []):
+        cursor = connection.execute("INSERT INTO accounting_tags(company_id,name,analysis_category_id,color,active) VALUES(?,?,?,?,?)", (company_id, row.get("name"), maps["category"].get(row.get("analysis_category_id")), row.get("color") or "#007b9a", row.get("active", 1)))
+        maps["tag"][row["id"]] = cursor.lastrowid
+    for row in source_data.get("region_tags", []):
+        cursor = connection.execute("INSERT INTO region_tags(company_id,name,active) VALUES(?,?,?)", (company_id, row.get("name"), row.get("active", 1)))
+        maps["region"][row["id"]] = cursor.lastrowid
+    for row in source_data.get("currencies", []): connection.execute("INSERT OR IGNORE INTO currencies(company_id,code,name,rate_to_base,active) VALUES(?,?,?,?,?)", (company_id, row.get("code"), row.get("name"), row.get("rate_to_base", 1), row.get("active", 1)))
+    for row in source_data.get("document_series", []): connection.execute("INSERT OR IGNORE INTO document_series(company_id,document_type,number_mode,prefix,next_number,allow_duplicates) VALUES(?,?,?,?,?,?)", (company_id, row.get("document_type"), row.get("number_mode", "automatic"), row.get("prefix", ""), row.get("next_number", 1), row.get("allow_duplicates", 0)))
+    settings = (source_data.get("company_settings") or [{}])[0]
+    connection.execute("INSERT OR REPLACE INTO company_settings(company_id,regions_enabled) VALUES(?,?)", (company_id, settings.get("regions_enabled", 0)))
+    for row in source_data.get("party_categories", []):
+        cursor = connection.execute("INSERT INTO party_categories(company_id,name,active) VALUES(?,?,?)", (company_id, row.get("name"), row.get("active", 1)))
+        maps["party_category"][row["id"]] = cursor.lastrowid
+    for row in source_data.get("accounts", []):
+        cursor = connection.execute("INSERT INTO accounts(company_id,code,name,category,subgroup_id,is_cash,cash_type,is_loan,default_currency,active) VALUES(?,?,?,?,?,?,?,?,?,?)", (company_id, row.get("code"), row.get("name"), row.get("category"), maps["subgroup"].get(row.get("subgroup_id")), row.get("is_cash", 0), row.get("cash_type", "Bank"), row.get("is_loan", 0), row.get("default_currency") or source.get("base_currency", "INR"), row.get("active", 1)))
+        maps["account"][row["id"]] = cursor.lastrowid
+    for row in source_data.get("parties", []):
+        cursor = connection.execute("INSERT INTO parties(company_id,name,party_type,contact_person,email,mobile,phone,tax_number,address,party_group,category_id,notes,active,archived) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (company_id, row.get("name"), row.get("party_type", "Other"), row.get("contact_person"), row.get("email"), row.get("mobile"), row.get("phone"), row.get("tax_number"), row.get("address"), row.get("party_group"), maps["party_category"].get(row.get("category_id")), row.get("notes"), row.get("active", 1), row.get("archived", 0)))
+        maps["party"][row["id"]] = cursor.lastrowid
+    for row in source_data.get("account_analysis_categories", []):
+        account_id, category_id = maps["account"].get(row.get("account_id")), maps["category"].get(row.get("category_id"))
+        if account_id and category_id: connection.execute("INSERT OR IGNORE INTO account_analysis_categories(account_id,category_id) VALUES(?,?)", (account_id, category_id))
+    for row in source_data.get("account_tag_links", []):
+        account_id, tag_id = maps["account"].get(row.get("account_id")), maps["tag"].get(row.get("tag_id"))
+        if account_id and tag_id: connection.execute("INSERT OR IGNORE INTO account_tag_links(account_id,tag_id) VALUES(?,?)", (account_id, tag_id))
+    for row in source_data.get("opening_balances", []):
+        account_id = maps["account"].get(row.get("account_id"))
+        if account_id: connection.execute("INSERT INTO opening_balances(company_id,account_id,effective_date,debit,credit,currency,fx_rate) VALUES(?,?,?,?,?,?,?)", (company_id, account_id, row.get("effective_date"), row.get("debit", 0), row.get("credit", 0), row.get("currency") or source.get("base_currency", "INR"), row.get("fx_rate", 1)))
+    for row in source_data.get("journal_entries", []):
+        cursor = connection.execute("INSERT INTO journal_entries(company_id,entry_date,document_type,document_no,reference,memo,payment_mode,party,accounting_tag_id,region_tag_id,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)", (company_id, row.get("entry_date"), row.get("document_type", "Journal"), row.get("document_no"), row.get("reference"), row.get("memo"), row.get("payment_mode"), row.get("party"), maps["tag"].get(row.get("accounting_tag_id")), maps["region"].get(row.get("region_tag_id")), row.get("created_at") or datetime.utcnow().isoformat()))
+        maps["entry"][row["id"]] = cursor.lastrowid
+    for row in source_data.get("journal_lines", []):
+        entry_id, account_id = maps["entry"].get(row.get("entry_id")), maps["account"].get(row.get("account_id"))
+        if entry_id and account_id:
+            cursor = connection.execute("INSERT INTO journal_lines(entry_id,account_id,description,debit,credit,currency,fx_rate) VALUES(?,?,?,?,?,?,?)", (entry_id, account_id, row.get("description"), row.get("debit", 0), row.get("credit", 0), row.get("currency") or source.get("base_currency", "INR"), row.get("fx_rate", 1)))
+            maps["line"][row["id"]] = cursor.lastrowid
+    for row in source_data.get("loan_profiles", []):
+        account_id = maps["account"].get(row.get("account_id"))
+        if account_id: connection.execute("INSERT INTO loan_profiles(account_id,company_id,lender,principal,annual_rate,start_date,term_months,notes) VALUES(?,?,?,?,?,?,?,?)", (account_id, company_id, row.get("lender"), row.get("principal", 0), row.get("annual_rate", 0), row.get("start_date"), row.get("term_months"), row.get("notes")))
+    for row in source_data.get("loan_repayments", []):
+        account_id = maps["account"].get(row.get("account_id"))
+        if account_id: connection.execute("INSERT INTO loan_repayments(account_id,due_date,installment_no,opening_principal,installment_amount,principal,interest,closing_principal,paid) VALUES(?,?,?,?,?,?,?,?,?)", (account_id, row.get("due_date"), row.get("installment_no"), row.get("opening_principal"), row.get("installment_amount"), row.get("principal", 0), row.get("interest", 0), row.get("closing_principal"), row.get("paid", 0)))
+    for row in source_data.get("bank_statement_openings", []):
+        account_id = maps["account"].get(row.get("account_id"))
+        if account_id: connection.execute("INSERT INTO bank_statement_openings(company_id,account_id,effective_date,debit,credit) VALUES(?,?,?,?,?)", (company_id, account_id, row.get("effective_date"), row.get("debit", 0), row.get("credit", 0)))
+    statement_map = {}
+    for row in source_data.get("bank_statement_lines", []):
+        account_id = maps["account"].get(row.get("account_id"))
+        if account_id:
+            cursor = connection.execute("INSERT INTO bank_statement_lines(company_id,account_id,statement_date,description,reference,debit,credit,created_at) VALUES(?,?,?,?,?,?,?,?)", (company_id, account_id, row.get("statement_date"), row.get("description"), row.get("reference"), row.get("debit", 0), row.get("credit", 0), row.get("created_at") or datetime.utcnow().isoformat()))
+            statement_map[row["id"]] = cursor.lastrowid
+    for row in source_data.get("bank_statement_lines", []):
+        statement_id, line_id = statement_map.get(row.get("id")), maps["line"].get(row.get("matched_journal_line_id"))
+        if statement_id and line_id: connection.execute("UPDATE bank_statement_lines SET matched_journal_line_id=? WHERE id=?", (line_id, statement_id))
+    for row in source_data.get("company_users", []): connection.execute("INSERT OR IGNORE INTO company_users(company_id,username,contact_no,email,password_hash,role,active) VALUES(?,?,?,?,?,?,?)", (company_id, row.get("username"), row.get("contact_no"), row.get("email"), row.get("password_hash"), row.get("role", "Accountant"), row.get("active", 1)))
+    for row in source_data.get("stock_transactions", []):
+        cursor = connection.execute("INSERT INTO stock_transactions(company_id,transaction_type,stock_name,symbol,quantity,transaction_date,transaction_timestamp,rate,total_amount,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)", (company_id, row.get("transaction_type"), row.get("stock_name"), row.get("symbol"), row.get("quantity"), row.get("transaction_date"), row.get("transaction_timestamp"), row.get("rate"), row.get("total_amount"), row.get("created_at") or datetime.utcnow().isoformat()))
+        maps["stock"][row["id"]] = cursor.lastrowid
+    if source_data.get("stock_transactions"): rebuild_stock_portfolio(connection, company_id)
+    for row in source_data.get("activity_log", []): connection.execute("INSERT INTO activity_log(company_id,user_name,activity,details,created_at) VALUES(?,?,?,?,?)", (company_id, row.get("user_name"), row.get("activity"), row.get("details"), row.get("created_at") or datetime.utcnow().isoformat()))
+    connection.execute("INSERT OR IGNORE INTO company_access(app_user_id,company_id,role) VALUES(?,?,?)", (app_user["id"], company_id, "Owner"))
+    audit(company_id, "Company restored from local backup", f"Source company: {source.get('name', 'Unknown')}")
+    return company_id
+
+
+@app.route("/company-backup")
+def company_backup_restore():
+    return render_template("company_backup.html", backup_companies=visible_companies())
+
+
+@app.route("/company-backup/<int:company_id>/download")
+def download_company_backup(company_id):
+    user = signed_in_user()
+    company = db().execute("SELECT * FROM companies WHERE id=? AND name <> 'Imported company'", (company_id,)).fetchone()
+    if not user or not company or not user_company_access(user, company_id):
+        flash("You do not have access to that company backup.", "error")
+        return redirect(url_for("company_backup_restore"))
+    payload = json.dumps(company_backup_payload(company["id"]), ensure_ascii=False, indent=2).encode("utf-8")
+    output = BytesIO()
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive: archive.writestr("company_backup.json", payload)
+    filename = re.sub(r"[^A-Za-z0-9_-]+", "-", company["name"]).strip("-") or "company"
+    return Response(output.getvalue(), mimetype="application/zip", headers={"Content-Disposition": f'attachment; filename="zedjer-{filename}-backup.zip"'})
+
+
+@app.route("/master/company-backup/restore", methods=["POST"])
+def restore_company_backup():
+    if not signed_in_user(): return redirect(url_for("sign_in"))
+    upload = request.files.get("backup_file")
+    restored_name = request.form.get("restored_name", "").strip()
+    try:
+        if not upload or not upload.filename: raise ValueError("Choose a Zedjer backup file")
+        with zipfile.ZipFile(upload.stream) as archive:
+            info = archive.getinfo("company_backup.json")
+            if info.file_size > 50 * 1024 * 1024: raise ValueError("Backup file is too large")
+            payload = json.loads(archive.read("company_backup.json").decode("utf-8"))
+        connection = db()
+        company_id = restore_company_backup_data(payload, restored_name, signed_in_user())
+        connection.commit()
+        session["company_id"] = company_id
+        session.pop("company_user_authenticated_for", None)
+        flash("Company restored successfully. It was created as a separate company.", "success")
+        return redirect(url_for("companies_dashboard"))
+    except (KeyError, ValueError, TypeError, zipfile.BadZipFile, json.JSONDecodeError, sqlite3.IntegrityError) as error:
+        db().rollback(); flash(f"Restore could not be completed: {error}", "error")
+    return redirect(url_for("company_backup_restore"))
 
 
 def sync_transaction_parties(company_id):

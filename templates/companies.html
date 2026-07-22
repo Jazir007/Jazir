@@ -1,1 +1,27 @@
-{% extends 'base.html' %}{% block heading %}{% if show_form %}Add company{% else %}Company dashboard{% endif %}{% endblock %}{% block header_action %}{% if not show_form %}<a class="primary" href="{{ url_for('company_new') }}">+ Add company</a>{% endif %}{% endblock %}{% block content %}{% if show_form %}<section class="panel"><form method="post" class="form-grid company-form"><label>Company name<input name="name" required></label><label>Legal registered name<input name="legal_name"></label><label>Tax / VAT number<input name="tax_number"></label><label class="wide-field">Address<textarea name="address" rows="2"></textarea></label><label>Mobile number<input name="mobile"></label><label>Email address<input name="email" type="email"></label><label>Base currency<input name="base_currency" value="AED" maxlength="3" required></label><label>Financial year starts<input type="date" name="financial_year_start" required></label><label>Financial year ends<input type="date" name="financial_year_end" required></label><div class="actions"><a class="secondary" href="{{ url_for('companies_dashboard') }}">Cancel</a><button class="primary">Create company</button></div></form></section>{% else %}<section class="panel setup-intro"><h2>Choose a company to work with</h2><p>Each company record is separate.</p></section><section class="panel"><div class="panel-title"><h2>Your companies</h2><a href="{{ url_for('company_new') }}">+ Add company</a></div>{% if companies %}<table><thead><tr><th>Company</th><th>Address</th><th>Contact</th><th>Currency</th><th>Financial year</th><th></th></tr></thead><tbody>{% for company in companies %}<tr><td><b>{{ company.name }}</b></td><td>{{ company.address or '—' }}</td><td>{{ company.mobile or company.email or '—' }}</td><td>{{ company.base_currency }}</td><td>{{ company.financial_year_start }} — {{ company.financial_year_end }}</td><td class="right"><form class="inline" method="post" action="{{ url_for('select_company') }}"><input type="hidden" name="company_id" value="{{ company.id }}"><button class="secondary">Open</button></form><a class="edit-link" href="{{ url_for('edit_company',company_id=company.id) }}">Edit</a><a class="danger-link" href="{{ url_for('delete_company',company_id=company.id) }}">Delete</a></td></tr>{% endfor %}</tbody></table>{% else %}<div class="empty">No companies yet.</div>{% endif %}</section>{% endif %}{% endblock %}
+{% extends 'base.html' %}
+{% block heading %}{% if show_form %}Add company{% else %}Company dashboard{% endif %}{% endblock %}
+{% block header_action %}
+{% if not show_form %}
+<a class="secondary" href="{{ url_for('company_backup_restore') }}">Backup &amp; restore</a>
+<a class="primary" href="{{ url_for('company_new') }}">+ Add company</a>
+{% endif %}
+{% endblock %}
+{% block content %}
+{% if show_form %}
+<section class="panel"><form method="post" class="form-grid company-form">
+  <label>Company name<input name="name" required></label><label>Legal registered name<input name="legal_name"></label><label>Tax / VAT number<input name="tax_number"></label>
+  <label class="wide-field">Address<textarea name="address" rows="2"></textarea></label><label>Mobile number<input name="mobile"></label><label>Email address<input name="email" type="email"></label>
+  <label>Base currency<input name="base_currency" value="AED" maxlength="3" required></label><label>Financial year starts<input type="date" name="financial_year_start" required></label><label>Financial year ends<input type="date" name="financial_year_end" required></label>
+  <div class="actions"><a class="secondary" href="{{ url_for('companies_dashboard') }}">Cancel</a><button class="primary">Create company</button></div>
+</form></section>
+{% else %}
+<section class="panel setup-intro"><h2>Choose a company to work with</h2><p>Each company record is separate.</p></section>
+<section class="panel"><div class="panel-title"><h2>Your companies</h2><div class="actions"><a class="secondary" href="{{ url_for('company_backup_restore') }}">Backup &amp; restore</a><a href="{{ url_for('company_new') }}">+ Add company</a></div></div>
+{% if companies %}
+<table><thead><tr><th>Company</th><th>Address</th><th>Contact</th><th>Currency</th><th>Financial year</th><th></th></tr></thead><tbody>
+{% for company in companies %}<tr><td><b>{{ company.name }}</b></td><td>{{ company.address or '—' }}</td><td>{{ company.mobile or company.email or '—' }}</td><td>{{ company.base_currency }}</td><td>{{ company.financial_year_start }} — {{ company.financial_year_end }}</td><td class="right"><form class="inline" method="post" action="{{ url_for('select_company') }}"><input type="hidden" name="company_id" value="{{ company.id }}"><button class="secondary">Open</button></form><a class="edit-link" href="{{ url_for('edit_company',company_id=company.id) }}">Edit</a><a class="danger-link" href="{{ url_for('delete_company',company_id=company.id) }}">Delete</a></td></tr>{% endfor %}
+</tbody></table>
+{% else %}<div class="empty">No companies yet.</div>{% endif %}
+</section>
+{% endif %}
+{% endblock %}
