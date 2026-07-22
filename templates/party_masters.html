@@ -42,7 +42,7 @@
     <label>Custom tab<select name="category_id"><option value="">No custom tab</option>{% for category in categories %}<option value="{{ category.id }}" {% if selected and selected.category_id == category.id %}selected{% endif %}>{{ category.name }}</option>{% endfor %}</select></label>
     <label>Group<input name="party_group" value="{{ selected.party_group if selected else '' }}" placeholder="Optional group, e.g. Retail customers"></label>
     <label>Contact person<input name="contact_person" value="{{ selected.contact_person if selected else '' }}"></label>
-    <label>Email<input type="email" name="email" value="{{ selected.email if selected else '' }}"></label>
+    <label>Email <span class="optional-field">Optional</span><input type="text" inputmode="email" name="email" value="{{ selected.email if selected else '' }}" placeholder="name@example.com"></label>
     <label>Mobile number<input name="mobile" value="{{ selected.mobile if selected else '' }}"></label>
     <label>Other phone<input name="phone" value="{{ selected.phone if selected else '' }}"></label>
     <label>Tax / VAT number<input name="tax_number" value="{{ selected.tax_number if selected else '' }}"></label>
