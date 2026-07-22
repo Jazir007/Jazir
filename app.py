@@ -1982,15 +1982,43 @@ def account_analysis_categories_json(account_id):
 @app.route("/companies/<int:company_id>/delete", methods=["GET", "POST"])
 def delete_company(company_id):
     company = db().execute("SELECT * FROM companies WHERE id=? AND name <> 'Imported company'", (company_id,)).fetchone()
-    if not company:
+    user = signed_in_user()
+    access = user_company_access(user, company_id) if user and not user["is_admin"] else True
+    if not company or not access:
+        flash("That company is not available for deletion.", "error")
         return redirect(url_for("companies_dashboard"))
     if request.method == "POST":
         if request.form.get("confirm") == "yes":
-            connection = db()
-            connection.execute("DELETE FROM journal_lines WHERE entry_id IN (SELECT id FROM journal_entries WHERE company_id=?)", (company_id,))
-            connection.execute("DELETE FROM companies WHERE id=?", (company_id,)); connection.commit()
-            if session.get("company_id") == company_id: session.pop("company_id", None)
-            flash("Company and all of its records were deleted.", "success")
+            try:
+                connection = db()
+                # Explicit removal supports both current and older local databases.
+                connection.execute("DELETE FROM stock_realized_matches WHERE company_id=?", (company_id,))
+                connection.execute("DELETE FROM stock_lots WHERE company_id=?", (company_id,))
+                connection.execute("DELETE FROM stock_holdings WHERE company_id=?", (company_id,))
+                connection.execute("DELETE FROM stock_transactions WHERE company_id=?", (company_id,))
+                connection.execute("DELETE FROM bank_statement_lines WHERE company_id=?", (company_id,))
+                connection.execute("DELETE FROM bank_statement_openings WHERE company_id=?", (company_id,))
+                connection.execute("DELETE FROM loan_repayments WHERE account_id IN (SELECT id FROM accounts WHERE company_id=?)", (company_id,))
+                connection.execute("DELETE FROM loan_profiles WHERE company_id=?", (company_id,))
+                connection.execute("DELETE FROM opening_balances WHERE company_id=?", (company_id,))
+                connection.execute("DELETE FROM journal_lines WHERE entry_id IN (SELECT id FROM journal_entries WHERE company_id=?)", (company_id,))
+                connection.execute("DELETE FROM journal_entries WHERE company_id=?", (company_id,))
+                connection.execute("DELETE FROM account_tag_links WHERE account_id IN (SELECT id FROM accounts WHERE company_id=?)", (company_id,))
+                connection.execute("DELETE FROM account_analysis_categories WHERE account_id IN (SELECT id FROM accounts WHERE company_id=?)", (company_id,))
+                connection.execute("DELETE FROM accounts WHERE company_id=?", (company_id,))
+                connection.execute("DELETE FROM parties WHERE company_id=?", (company_id,))
+                connection.execute("DELETE FROM party_categories WHERE company_id=?", (company_id,))
+                for table in ("account_subgroups", "accounting_tags", "analysis_categories", "region_tags", "currencies", "document_series", "company_settings", "company_users", "company_access", "activity_log"):
+                    connection.execute(f"DELETE FROM {table} WHERE company_id=?", (company_id,))
+                connection.execute("DELETE FROM companies WHERE id=?", (company_id,))
+                connection.commit()
+                if session.get("company_id") == company_id:
+                    session.pop("company_id", None)
+                    session.pop("company_user_authenticated_for", None)
+                flash("Company and all of its records were deleted.", "success")
+            except sqlite3.Error:
+                db().rollback()
+                flash("The company could not be deleted. Please try again after refreshing the page.", "error")
         return redirect(url_for("companies_dashboard"))
     return render_template("delete_company.html", company=company)
 
