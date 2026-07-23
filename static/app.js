@@ -173,7 +173,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // The navigation is intentionally created here so it stays available on every
   // page without duplicating controls in individual templates.
   const sidebar = document.querySelector('aside');
-  if (sidebar && !document.body.classList.contains('administrator-mode')) {
+  if (sidebar && !document.body.classList.contains('administrator-mode') && !document.body.classList.contains('settings-immersive')) {
     sidebar.querySelectorAll('nav a').forEach(link => {
       if (new URL(link.href, location.origin).pathname === location.pathname) link.classList.add('active');
       if (new URL(link.href, location.origin).pathname === '/accounts') link.textContent = 'Chart of Accounts';
@@ -208,6 +208,16 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     const overlay = document.createElement('div'); overlay.className = 'menu-overlay'; overlay.setAttribute('aria-hidden', 'true');
     const brandToggle = sidebar.querySelector('.brand');
+    let mobileToggle = document.querySelector('.mobile-menu-toggle');
+    if (!mobileToggle) {
+      mobileToggle = document.createElement('button');
+      mobileToggle.type = 'button';
+      mobileToggle.className = 'mobile-menu-toggle';
+      mobileToggle.setAttribute('aria-label', 'Open navigation menu');
+      mobileToggle.setAttribute('aria-expanded', 'false');
+      mobileToggle.innerHTML = '<i></i><i></i><i></i>';
+      document.body.append(mobileToggle);
+    }
     let railToggle = sidebar.querySelector('.sidebar-rail-toggle');
     if (!railToggle) {
       railToggle = document.createElement('button');
@@ -227,6 +237,10 @@ document.addEventListener('DOMContentLoaded', () => {
         railToggle.setAttribute('aria-expanded', String(open));
         railToggle.setAttribute('aria-label', open ? 'Collapse navigation menu' : 'Expand navigation menu');
       }
+      if (mobileToggle) {
+        mobileToggle.setAttribute('aria-expanded', String(open));
+        mobileToggle.setAttribute('aria-label', open ? 'Close navigation menu' : 'Open navigation menu');
+      }
     };
     if (brandToggle) {
       brandToggle.setAttribute('role', 'button');
@@ -235,8 +249,12 @@ document.addEventListener('DOMContentLoaded', () => {
       brandToggle.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setMenu(!document.body.classList.contains('menu-open')); } });
     }
     railToggle?.addEventListener('click', () => setMenu(!document.body.classList.contains('menu-open')));
+    mobileToggle?.addEventListener('click', () => setMenu(!document.body.classList.contains('menu-open')));
     overlay.addEventListener('click', () => setMenu(false));
     document.addEventListener('keydown', event => { if (event.key === 'Escape') setMenu(false); });
+    sidebar.querySelectorAll('nav a').forEach(link => link.addEventListener('click', () => {
+      if (window.matchMedia('(max-width: 900px)').matches) setMenu(false);
+    }));
   }
   const nextOutstanding = [...document.querySelectorAll('.loan-analysis table tbody tr')].find(row => row.lastElementChild?.textContent.trim() === 'Upcoming');
   if (nextOutstanding) {

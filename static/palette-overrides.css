@@ -19,6 +19,24 @@ input:focus,select:focus,textarea:focus{border-color:var(--theme-secondary)!impo
 .report-menu a,.master-grid a{border-left-color:var(--theme-secondary)!important}.report-menu a:hover,.master-grid a:hover{border-color:color-mix(in srgb,var(--theme-secondary) 48%,#fff)!important}.report-menu a:before,.master-grid a:after{background:radial-gradient(circle,color-mix(in srgb,var(--theme-secondary) 15%,transparent),transparent 68%)!important}
 body:not(.settings-immersive):not(.administrator-mode)>aside,body:not(.settings-immersive):not(.administrator-mode).menu-open>aside{background:linear-gradient(165deg,var(--theme-deep),var(--theme-primary) 60%,var(--theme-secondary))!important}.sidebar-hover-label,body:not(.settings-immersive):not(.administrator-mode)>aside nav a:after{background:linear-gradient(105deg,var(--theme-primary),var(--theme-secondary))!important}.menu-toggle{background:linear-gradient(135deg,var(--theme-primary),var(--theme-secondary))!important}
 
+/* Phone navigation: the desktop rail is intentionally compact, while phones
+   receive a dedicated, always reachable menu control. */
+.mobile-menu-toggle{display:none}
+@media(max-width:900px){
+  body:not(.settings-immersive):not(.administrator-mode)>aside{z-index:110!important;width:min(290px,86vw)!important;height:100dvh!important;transform:translateX(-105%)!important;transition:transform .22s cubic-bezier(.2,.8,.2,1)!important;pointer-events:none!important}
+  body:not(.settings-immersive):not(.administrator-mode).menu-open>aside{transform:translateX(0)!important;pointer-events:auto!important}
+  body:not(.settings-immersive):not(.administrator-mode)>main,body:not(.settings-immersive):not(.administrator-mode).menu-open>main{margin-left:0!important;width:100%!important;transform:none!important;filter:none!important;pointer-events:auto!important}
+  .menu-overlay{z-index:105!important}
+  .mobile-menu-toggle{position:fixed;z-index:125;top:14px;left:14px;display:grid;place-content:center;gap:4px;width:36px;height:36px;padding:0;border:1px solid color-mix(in srgb,var(--theme-secondary) 42%,#fff);border-radius:11px;background:linear-gradient(135deg,var(--theme-primary),var(--theme-secondary));box-shadow:0 8px 20px color-mix(in srgb,var(--theme-deep) 28%,transparent);transition:left .22s cubic-bezier(.2,.8,.2,1),background .16s ease;touch-action:manipulation}
+  .mobile-menu-toggle i{display:block;width:15px;height:1.5px;border-radius:2px;background:#fff;transition:transform .2s ease,opacity .14s ease}
+  body.menu-open .mobile-menu-toggle{left:calc(min(290px,86vw) + 10px);background:#fff}
+  body.menu-open .mobile-menu-toggle i{background:var(--theme-primary)}
+  body.menu-open .mobile-menu-toggle i:nth-child(1){transform:translateY(5.5px) rotate(45deg)}
+  body.menu-open .mobile-menu-toggle i:nth-child(2){opacity:0}
+  body.menu-open .mobile-menu-toggle i:nth-child(3){transform:translateY(-5.5px) rotate(-45deg)}
+}
+@media(max-width:390px){body.menu-open .mobile-menu-toggle{left:calc(86vw + 7px)}}
+
 /* Investment workspace */
 .portfolio-overview article{border-color:color-mix(in srgb,var(--theme-primary) 18%,#fff)!important;background:linear-gradient(135deg,#fff,color-mix(in srgb,var(--theme-tint) 62%,#fff))!important}.stock-badge{background:linear-gradient(135deg,var(--theme-primary),var(--theme-secondary))!important}
 .holding-card,.holding-card:nth-child(even),.stock-summary-table tbody tr,.stock-summary-table tbody tr:nth-child(2n),.stock-summary-table tbody tr:nth-child(3n){background:linear-gradient(105deg,var(--theme-deep),var(--theme-primary) 50%,var(--theme-secondary))!important}.holding-card:nth-child(even){filter:saturate(.88) brightness(1.08)}.stock-summary-table tfoot th{background:linear-gradient(100deg,var(--theme-deep),var(--theme-primary))!important}.stock-pnl table thead{background:linear-gradient(90deg,var(--theme-primary),var(--theme-secondary))!important}.stock-pnl-cards article{border-left-color:var(--theme-secondary)!important}.stock-pnl-cards article:nth-child(2){border-left-color:var(--theme-primary)!important}.stock-pnl-cards article:nth-child(3){border-left-color:var(--theme-deep)!important}
