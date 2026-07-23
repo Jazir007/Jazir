@@ -9,10 +9,16 @@
   <link rel="stylesheet" href="{{ url_for('static',filename='style.css') }}">
   <link rel="stylesheet" href="{{ url_for('static',filename='quick-access.css') }}">
   <link rel="stylesheet" href="{{ url_for('static',filename='workspace-tools.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static',filename='subscription.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static',filename='admin-subscription.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static',filename='main-sidebar-rail.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static',filename='main-sidebar-reference.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static',filename='notification-bell.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static',filename='dashboard-filters.css') }}">
   <script>window.ledgerCurrencies=[{% for currency in currencies %}{code:'{{ currency.code }}',name:'{{ currency.name }}',rate:{{ currency.rate_to_base }}},{% endfor %}];</script>
   <script defer src="{{ url_for('static',filename='app.js') }}"></script>
 </head>
-<body>
+<body class="{% if request.path == '/settings' %}settings-immersive{% endif %}" data-light-palette="{{ appearance.light_palette }}" data-dark-palette="{{ appearance.dark_palette }}">
   {% if active_company %}
   <div class="quick-access-trigger" aria-hidden="true"></div>
   <nav class="quick-access-bar" aria-label="Quick access">
@@ -36,6 +42,8 @@
     {% if request.path.startswith('/reports/') %}<form method="get" class="report-currency"><label>Report currency<select name="currency">{% for currency in currencies %}<option value="{{ currency.code }}" {% if request.args.get('currency',base_currency) == currency.code %}selected{% endif %}>{{ currency.code }} · {{ currency.name }}</option>{% endfor %}</select></label><label>1 {{ active_company.base_currency }} =<input name="report_rate" type="number" step="0.000001" min="0.000001" value="{{ request.args.get('report_rate','1') }}"></label><button class="secondary">Apply currency</button></form>{% endif %}
     {% with messages=get_flashed_messages(with_categories=true) %}{% for type,message in messages %}<div class="flash {{ type }}">{{ message }}</div>{% endfor %}{% endwith %}
     {% block content %}{% endblock %}
+    {# Load last so the saved company palette wins over page-specific styling. #}
+    <link rel="stylesheet" href="{{ url_for('static',filename='palette-overrides.css',v='3') }}">
   </main>
 </body>
 </html>

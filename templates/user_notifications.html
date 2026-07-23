@@ -1,17 +1,19 @@
-{% extends 'admin_base.html' %}
-{% block heading %}Administrator notifications{% endblock %}
-{% block header_action %}<form method="post"><button class="secondary">Mark all as read</button></form>{% endblock %}
+{% extends 'base.html' %}
+{% block heading %}Notifications{% endblock %}
+{% block header_action %}<a class="secondary" href="{{ url_for('subscription') }}">Manage subscription</a>{% endblock %}
 {% block content %}
-<section class="notification-hero panel"><div><span>ADMINISTRATOR UPDATES</span><h2>Notifications</h2><p>New registrations, password reset activity, user-limit events and other platform updates.</p></div><div class="notification-hero-count"><b>{{ unread }}</b><small>unread</small></div></section>
+<link rel="stylesheet" href="{{ url_for('static', filename='notification-center.css') }}">
+<section class="notification-hero panel"><div><span>KEEP UP TO DATE</span><h2>Notifications</h2><p>Subscription reminders, account activity and important updates for your Zedjer Books workspace.</p></div><div class="notification-hero-count"><b>{{ unread }}</b><small>unread</small></div></section>
+
 <section class="notification-center panel">
-  <div class="notification-center-head"><div class="notification-tabs" role="tablist"><button class="active" type="button" data-notice-tab="all">All <span>{{ notifications|length }}</span></button><button type="button" data-notice-tab="unread">Unread <span>{{ unread }}</span></button></div>{% if unread %}<form method="post"><button class="mark-read" type="submit">Mark all as read</button></form>{% endif %}</div>
+  <div class="notification-center-head"><div class="notification-tabs" role="tablist"><button class="active" type="button" data-notice-tab="all">All <span>{{ notifications|length }}</span></button><button type="button" data-notice-tab="unread">Unread <span>{{ unread }}</span></button></div>{% if unread %}<form method="post"><button class="mark-read" type="submit">&#10003; Mark all as read</button></form>{% endif %}</div>
   <div class="notification-toolbar"><label class="notice-search"><span>&#8981;</span><input id="notice-search" type="search" placeholder="Search notifications"></label><select id="notice-type-filter"><option value="">All notification types</option>{% for kind in notification_types %}<option value="{{ kind }}">{{ kind }}</option>{% endfor %}</select></div>
   <div class="notice-list">
     {% for item in notifications %}
       {% set kind = item.kind|lower %}
       {% if 'subscription' in kind or 'plan' in kind %}{% set icon='&#10022;' %}{% set type='subscription' %}{% elif 'password' in kind or 'security' in kind %}{% set icon='&#9670;' %}{% set type='security' %}{% elif 'bank' in kind or 'reconcil' in kind %}{% set icon='&#8596;' %}{% set type='banking' %}{% elif 'transaction' in kind or 'entry' in kind %}{% set icon='&#8644;' %}{% set type='transaction' %}{% else %}{% set icon='&#9675;' %}{% set type='general' %}{% endif %}
       <article class="notice-card {{ type }} {% if not item.read_at %}unread{% endif %}" data-notice-item data-status="{{ 'unread' if not item.read_at else 'read' }}" data-kind="{{ item.kind }}" data-search="{{ (item.kind ~ ' ' ~ item.message)|lower }}"><span class="notice-icon">{{ icon|safe }}</span><div class="notice-copy"><div><b>{{ item.kind }}</b>{% if not item.read_at %}<em>New</em>{% endif %}</div><p>{{ item.message }}</p><small>{{ item.created_at|datetimefmt }}</small></div><span class="notice-dot" aria-hidden="true"></span></article>
-    {% else %}<div class="notification-empty"><span>&#9675;</span><h2>No notifications yet</h2><p>Important platform updates will appear here.</p></div>{% endfor %}
+    {% else %}<div class="notification-empty"><span>&#9675;</span><h2>No notifications yet</h2><p>Important updates will appear here.</p></div>{% endfor %}
   </div><p class="notification-filter-empty" hidden>No notifications match this filter.</p>
 </section>
 <script>(()=>{const tabs=[...document.querySelectorAll('[data-notice-tab]')],rows=[...document.querySelectorAll('[data-notice-item]')],search=document.querySelector('#notice-search'),type=document.querySelector('#notice-type-filter'),empty=document.querySelector('.notification-filter-empty');let tab='all';const apply=()=>{const term=(search.value||'').toLowerCase();let visible=0;rows.forEach(row=>{const show=(tab==='all'||row.dataset.status==='unread')&&(!type.value||row.dataset.kind===type.value)&&row.dataset.search.includes(term);row.hidden=!show;if(show)visible++});empty.hidden=visible>0};tabs.forEach(button=>button.addEventListener('click',()=>{tab=button.dataset.noticeTab;tabs.forEach(item=>item.classList.toggle('active',item===button));apply()}));search.addEventListener('input',apply);type.addEventListener('change',apply)})();</script>

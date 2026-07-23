@@ -117,6 +117,22 @@ def display_date(value):
 def datefmt(value):
     return display_date(value)
 
+
+@app.template_filter("datetimefmt")
+def datetimefmt(value):
+    if not value:
+        return "Not yet active"
+    try:
+        moment = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        today = date.today()
+        if moment.date() == today:
+            return moment.strftime("Today, %I:%M %p")
+        if moment.date() == today - timedelta(days=1):
+            return moment.strftime("Yesterday, %I:%M %p")
+        return moment.strftime("%d-%m-%Y, %I:%M %p")
+    except (TypeError, ValueError):
+        return str(value)
+
 DEFAULT_ACCOUNTS = [
     ("1000", "Bank account", "Asset", 1), ("1100", "Accounts receivable", "Asset", 0), ("1200", "Inventory", "Asset", 0), ("1500", "Equipment", "Asset", 0),
     ("2000", "Accounts payable", "Liability", 0), ("2100", "Taxes payable", "Liability", 0), ("3000", "Owner equity", "Equity", 0), ("3100", "Retained earnings", "Equity", 0),
@@ -289,7 +305,14 @@ def init_db():
     );
     CREATE TABLE IF NOT EXISTS company_users (
       id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL, username TEXT NOT NULL, contact_no TEXT, email TEXT, password_hash TEXT, role TEXT NOT NULL DEFAULT 'Accountant', active INTEGER NOT NULL DEFAULT 1,
+      last_active_at TEXT,
       UNIQUE(company_id,username), FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS company_roles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL, name TEXT NOT NULL,
+      description TEXT, permissions TEXT NOT NULL DEFAULT '[]', active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(company_id,name COLLATE NOCASE), FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE
     );
     CREATE TABLE IF NOT EXISTS app_users (
       id INTEGER PRIMARY KEY AUTOINCREMENT, display_name TEXT NOT NULL, email TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -312,8 +335,31 @@ def init_db():
     );
     CREATE TABLE IF NOT EXISTS app_notifications (
       id INTEGER PRIMARY KEY AUTOINCREMENT, recipient_user_id INTEGER, kind TEXT NOT NULL, message TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, read_at TEXT,
+      audience TEXT NOT NULL DEFAULT 'user', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, read_at TEXT,
       FOREIGN KEY(recipient_user_id) REFERENCES app_users(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS subscriptions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, app_user_id INTEGER NOT NULL UNIQUE, plan_key TEXT NOT NULL DEFAULT 'trial',
+      status TEXT NOT NULL DEFAULT 'Active', starts_at TEXT NOT NULL, ends_at TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(app_user_id) REFERENCES app_users(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS subscription_reminders (
+      app_user_id INTEGER NOT NULL, reminder_key TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY(app_user_id,reminder_key), FOREIGN KEY(app_user_id) REFERENCES app_users(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS subscription_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, app_user_id INTEGER NOT NULL, plan_key TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'Active', starts_at TEXT NOT NULL, ends_at TEXT NOT NULL,
+      amount REAL NOT NULL DEFAULT 0, currency TEXT NOT NULL DEFAULT 'INR', changed_by_user_id INTEGER, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(app_user_id) REFERENCES app_users(id) ON DELETE CASCADE,
+      FOREIGN KEY(changed_by_user_id) REFERENCES app_users(id) ON DELETE SET NULL
+    );
+    CREATE TABLE IF NOT EXISTS subscription_prices (
+      plan_key TEXT PRIMARY KEY, amount REAL NOT NULL DEFAULT 0, currency TEXT NOT NULL DEFAULT 'INR', updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS subscription_plan_features (
+      plan_key TEXT NOT NULL, feature_key TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1,
+      PRIMARY KEY(plan_key,feature_key)
     );
     CREATE TABLE IF NOT EXISTS activity_log (
       id INTEGER PRIMARY KEY AUTOINCREMENT, company_id INTEGER NOT NULL, user_name TEXT, activity TEXT NOT NULL, details TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -394,6 +440,10 @@ def init_db():
         tag_columns = [row[1] for row in connection.execute("PRAGMA table_info(accounting_tags)")]
         if "analysis_category_id" not in tag_columns: connection.execute("ALTER TABLE accounting_tags ADD COLUMN analysis_category_id INTEGER")
         connection.execute("INSERT OR IGNORE INTO company_settings(company_id) SELECT id FROM companies")
+        company_setting_columns = [row[1] for row in connection.execute("PRAGMA table_info(company_settings)")]
+        for name, definition in (("light_palette", "TEXT NOT NULL DEFAULT 'peacock'"), ("dark_palette", "TEXT NOT NULL DEFAULT 'midnight'")):
+            if name not in company_setting_columns:
+                connection.execute(f"ALTER TABLE company_settings ADD COLUMN {name} {definition}")
         opening_columns = [row[1] for row in connection.execute("PRAGMA table_info(opening_balances)")]
         if "currency" not in opening_columns:
             connection.execute("ALTER TABLE opening_balances ADD COLUMN currency TEXT NOT NULL DEFAULT 'INR'")
@@ -413,21 +463,43 @@ def init_db():
         if "allow_duplicates" not in series_columns:
             connection.execute("ALTER TABLE document_series ADD COLUMN allow_duplicates INTEGER NOT NULL DEFAULT 0")
         user_columns = [row[1] for row in connection.execute("PRAGMA table_info(company_users)")]
-        for name, definition in (("contact_no", "TEXT"), ("email", "TEXT"), ("password_hash", "TEXT")):
+        for name, definition in (("contact_no", "TEXT"), ("email", "TEXT"), ("password_hash", "TEXT"), ("last_active_at", "TEXT")):
             if name not in user_columns: connection.execute(f"ALTER TABLE company_users ADD COLUMN {name} {definition}")
+        for company_row in connection.execute("SELECT id FROM companies"):
+            for role_name, role_description, role_permissions in DEFAULT_COMPANY_ROLES:
+                connection.execute(
+                    "INSERT OR IGNORE INTO company_roles(company_id,name,description,permissions) VALUES(?,?,?,?)",
+                    (company_row[0], role_name, role_description, json.dumps(role_permissions)),
+                )
         app_user_columns = [row[1] for row in connection.execute("PRAGMA table_info(app_users)")]
         if "is_admin" not in app_user_columns:
             connection.execute("ALTER TABLE app_users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
         if "last_login_at" not in app_user_columns:
             connection.execute("ALTER TABLE app_users ADD COLUMN last_login_at TEXT")
-        for name in ("profession", "industry", "discovery_source"):
+        for name in ("profession", "industry", "discovery_source", "phone", "preferred_language", "preferred_timezone", "preferred_date_format", "preferred_time_format", "items_per_page"):
             if name not in app_user_columns:
                 connection.execute(f"ALTER TABLE app_users ADD COLUMN {name} TEXT")
         if "must_change_password" not in app_user_columns:
             connection.execute("ALTER TABLE app_users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0")
+        notification_columns = [row[1] for row in connection.execute("PRAGMA table_info(app_notifications)")]
+        if "audience" not in notification_columns:
+            connection.execute("ALTER TABLE app_notifications ADD COLUMN audience TEXT NOT NULL DEFAULT 'user'")
+        connection.execute("""UPDATE app_notifications SET audience='admin'
+            WHERE kind IN ('New user registered','User limit reached','Password reset request','Password reset completed')""")
         if not connection.execute("SELECT 1 FROM app_users WHERE is_admin=1 LIMIT 1").fetchone():
             connection.execute("UPDATE app_users SET is_admin=1 WHERE id=(SELECT id FROM app_users ORDER BY id LIMIT 1)")
         connection.execute("INSERT OR IGNORE INTO app_settings(id,user_limit) VALUES(1,10)")
+        connection.execute("INSERT OR IGNORE INTO subscription_prices(plan_key,amount) VALUES('standard',0)")
+        connection.execute("INSERT OR IGNORE INTO subscription_prices(plan_key,amount) VALUES('premium',0)")
+        price_columns = [row[1] for row in connection.execute("PRAGMA table_info(subscription_prices)")]
+        if "currency" not in price_columns:
+            connection.execute("ALTER TABLE subscription_prices ADD COLUMN currency TEXT NOT NULL DEFAULT 'INR'")
+        history_columns = [row[1] for row in connection.execute("PRAGMA table_info(subscription_history)")]
+        if "currency" not in history_columns:
+            connection.execute("ALTER TABLE subscription_history ADD COLUMN currency TEXT NOT NULL DEFAULT 'INR'")
+        for plan_key in ("trial", "standard", "premium"):
+            for feature_key, _name, _description in WORKSPACE_FEATURES:
+                connection.execute("INSERT OR IGNORE INTO subscription_plan_features(plan_key,feature_key,enabled) VALUES(?,?,1)", (plan_key, feature_key))
         connection.execute("""INSERT OR IGNORE INTO company_access(app_user_id,company_id,role)
             SELECT au.id,cu.company_id,COALESCE(cu.role,'Accountant') FROM app_users au
             JOIN company_users cu ON lower(trim(cu.email))=lower(trim(au.email)) WHERE cu.active=1""")
@@ -488,6 +560,36 @@ WORKSPACE_FEATURES = (
     ("bill_scanning", "Bill scanning", "Scan bills to prepare transactions"),
 )
 
+ROLE_PERMISSION_OPTIONS = (
+    ("transactions", "Transactions", "Create and edit accounting transactions"),
+    ("accounts", "Chart of accounts", "Manage ledgers and account groups"),
+    ("banking", "Bank & cash", "Use bank reconciliation and cash tools"),
+    ("reports", "Reports", "View and export financial reports"),
+    ("masters", "Masters", "Manage parties, currencies and numbering"),
+    ("manage_users", "Users & roles", "Manage user access and role permissions"),
+    ("settings", "Settings", "Change workspace settings and feature controls"),
+)
+DEFAULT_COMPANY_ROLES = (
+    ("Owner", "Full control of this company and its records.", [key for key, _name, _description in ROLE_PERMISSION_OPTIONS]),
+    ("Administrator", "Manage company operations, users and settings.", [key for key, _name, _description in ROLE_PERMISSION_OPTIONS]),
+    ("Accountant", "Enter transactions, manage accounts and prepare reports.", ["transactions", "accounts", "banking", "reports", "masters"]),
+    ("Viewer", "Read-only access to financial reports.", ["reports"]),
+)
+
+
+def company_roles(company_id):
+    return db().execute("SELECT * FROM company_roles WHERE company_id=? ORDER BY CASE name WHEN 'Owner' THEN 0 WHEN 'Administrator' THEN 1 WHEN 'Accountant' THEN 2 WHEN 'Viewer' THEN 3 ELSE 4 END, name", (company_id,)).fetchall()
+
+
+def company_role_permissions(company_id, role_name):
+    row = db().execute("SELECT permissions FROM company_roles WHERE company_id=? AND name=? COLLATE NOCASE AND active=1", (company_id, role_name or "")).fetchone()
+    if not row:
+        return set()
+    try:
+        return set(json.loads(row["permissions"] or "[]"))
+    except (TypeError, ValueError):
+        return set()
+
 
 def feature_states(company):
     if not company:
@@ -496,8 +598,50 @@ def feature_states(company):
     return {key: stored.get(key, True) for key, _name, _description in WORKSPACE_FEATURES}
 
 
+def subscription_feature_states(user):
+    """Features allowed by the active plan; owner/admin accounts always get Premium access."""
+    if not user or has_premium_privileges(user):
+        return {key: True for key, _name, _description in WORKSPACE_FEATURES}
+    subscription = ensure_subscription(user)
+    plan_key = subscription["plan_key"] if subscription else "trial"
+    stored = {row["feature_key"]: bool(row["enabled"]) for row in db().execute(
+        "SELECT feature_key,enabled FROM subscription_plan_features WHERE plan_key=?", (plan_key,)).fetchall()}
+    return {key: stored.get(key, True) for key, _name, _description in WORKSPACE_FEATURES}
+
+
+def available_feature_states(company, user=None):
+    workspace = feature_states(company)
+    subscription = subscription_feature_states(user or signed_in_user())
+    return {key: workspace.get(key, True) and subscription.get(key, True) for key, _name, _description in WORKSPACE_FEATURES}
+
+
+APPEARANCE_PALETTES = {
+    "light": {
+        "peacock": ("Peacock blue", "#087b9b", "#0f9d99"),
+        "ocean": ("Ocean blue", "#1769aa", "#2e91c4"),
+        "mint": ("Fresh mint", "#137d6b", "#35aa8a"),
+        "rose": ("Soft rose", "#a44c78", "#d47698"),
+    },
+    "dark": {
+        "midnight": ("Midnight teal", "#0b7d91", "#11a49a"),
+        "navy": ("Deep navy", "#315dac", "#4e82d6"),
+        "forest": ("Forest night", "#237b63", "#40aa82"),
+        "graphite": ("Graphite blue", "#46647c", "#7697ad"),
+    },
+}
+
+
+def company_appearance(company):
+    if not company:
+        return {"light_palette": "peacock", "dark_palette": "midnight"}
+    row = db().execute("SELECT light_palette,dark_palette FROM company_settings WHERE company_id=?", (company["id"],)).fetchone()
+    light = row["light_palette"] if row and row["light_palette"] in APPEARANCE_PALETTES["light"] else "peacock"
+    dark = row["dark_palette"] if row and row["dark_palette"] in APPEARANCE_PALETTES["dark"] else "midnight"
+    return {"light_palette": light, "dark_palette": dark}
+
+
 def workspace_search_items(company):
-    flags = feature_states(company)
+    flags = available_feature_states(company)
     items = [
         ("Business dashboard", "Workspace", "Dashboard, profit, expenses and cash flow", "/analysis", None),
         ("Transactions", "Workspace", "Create and manage accounting entries", "/transactions", None),
@@ -518,6 +662,8 @@ def workspace_search_items(company):
         ("User authorisations", "Master", "Company users and access levels", "/master/users", None),
         ("User logs", "Master", "Company activity records", "/master/activity", None),
         ("Company backup & restore", "Company", "Encrypted local company backups", "/company-backup", None),
+        ("Subscription", "Account", "Free trial, Standard and Premium plans", "/subscription", None),
+        ("Notifications", "Account", "Subscription expiry reminders and account notices", "/notifications", None),
         ("Settings", "Workspace", "Enable or disable ERP features", "/settings", None),
         ("Help & user manual", "Workspace", "Guidance for every ERP feature", "/help", None),
         ("Party masters", "Master", "Customers, suppliers and contact details", "/master/parties", "party_masters"),
@@ -554,16 +700,109 @@ def app_user_limit():
     return int(row["user_limit"]) if row else 10
 
 
+def has_premium_privileges(user):
+    """Only the ERP's global Administrator account is permanently Premium."""
+    if not user:
+        return False
+    return bool(user["is_admin"])
+
+
+SUBSCRIPTION_PLANS = {
+    "trial": {"name": "Free Trial", "duration_days": 45, "companies": None, "users": None, "description": "All Zedjer Books features for 45 days."},
+    "standard": {"name": "Standard", "duration_days": 30, "companies": 5, "users": 3, "description": "Multi-currency, up to 5 companies and 3 users per company."},
+    "premium": {"name": "Premium", "duration_days": 30, "companies": None, "users": None, "description": "All features with unlimited companies and users."},
+}
+
+
+def subscription_prices():
+    rows = db().execute("SELECT plan_key,amount,currency FROM subscription_prices").fetchall()
+    prices = {row["plan_key"]: {"amount": float(row["amount"] or 0), "currency": (row["currency"] or "INR").upper()} for row in rows}
+    return {key: prices.get(key, {"amount": 0, "currency": "INR"}) for key in ("standard", "premium")}
+
+
+def ensure_subscription(user):
+    """Return the user subscription, creating the one-time 45-day trial when needed."""
+    if not user:
+        return None
+    connection = db()
+    subscription = connection.execute("SELECT * FROM subscriptions WHERE app_user_id=?", (user["id"],)).fetchone()
+    if not subscription:
+        starts = date.today()
+        ends = starts + timedelta(days=45)
+        connection.execute("INSERT INTO subscriptions(app_user_id,plan_key,status,starts_at,ends_at) VALUES(?,?,?,?,?)", (user["id"], "trial", "Active", starts.isoformat(), ends.isoformat()))
+        connection.commit()
+        subscription = connection.execute("SELECT * FROM subscriptions WHERE app_user_id=?", (user["id"],)).fetchone()
+    if not connection.execute("SELECT 1 FROM subscription_history WHERE app_user_id=? LIMIT 1", (user["id"],)).fetchone():
+        connection.execute("""INSERT INTO subscription_history(app_user_id,plan_key,status,starts_at,ends_at,amount,changed_by_user_id)
+            VALUES(?,?,?,?,?,?,?)""", (user["id"], subscription["plan_key"], subscription["status"], subscription["starts_at"], subscription["ends_at"], 0, user["id"]))
+        connection.commit()
+    if has_premium_privileges(user):
+        lifetime_end = "9999-12-31"
+        if subscription["plan_key"] != "premium" or subscription["status"] != "Lifetime" or subscription["ends_at"] != lifetime_end:
+            connection.execute("""UPDATE subscriptions SET plan_key='premium',status='Lifetime',ends_at=?,updated_at=CURRENT_TIMESTAMP
+                WHERE app_user_id=?""", (lifetime_end, user["id"]))
+            connection.commit()
+        if not connection.execute("""SELECT 1 FROM subscription_history
+            WHERE app_user_id=? AND plan_key='premium' AND status='Lifetime' LIMIT 1""", (user["id"],)).fetchone():
+            connection.execute("""INSERT INTO subscription_history(app_user_id,plan_key,status,starts_at,ends_at,amount,currency,changed_by_user_id)
+                VALUES(?,?,?,?,?,?,?,?)""", (user["id"], "premium", "Lifetime", date.today().isoformat(), lifetime_end, 0, "INR", user["id"]))
+            connection.commit()
+        return connection.execute("SELECT * FROM subscriptions WHERE app_user_id=?", (user["id"],)).fetchone()
+    ending = date.fromisoformat(subscription["ends_at"])
+    status = "Expired" if ending < date.today() else "Active"
+    if subscription["status"] != status:
+        connection.execute("UPDATE subscriptions SET status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?", (status, subscription["id"]))
+        connection.commit()
+        subscription = connection.execute("SELECT * FROM subscriptions WHERE id=?", (subscription["id"],)).fetchone()
+    if not has_premium_privileges(user):
+        subscription_reminders(user, subscription)
+    return subscription
+
+
+def subscription_reminders(user, subscription):
+    """Create one notification as a subscription crosses each expiry reminder point."""
+    remaining = (date.fromisoformat(subscription["ends_at"]) - date.today()).days
+    if remaining < 0:
+        reminder_key, message = "expired", "Your " + SUBSCRIPTION_PLANS[subscription["plan_key"]]["name"] + " subscription has expired. Choose a plan to continue using Zedjer Books."
+    elif remaining <= 3:
+        reminder_key, message = "3-days", "Your Zedjer Books subscription ends in " + str(remaining) + " day(s). Choose or renew a plan to avoid interruption."
+    elif remaining <= 7:
+        reminder_key, message = "7-days", "Your Zedjer Books subscription ends in " + str(remaining) + " days."
+    elif remaining <= 14:
+        reminder_key, message = "14-days", "Your Zedjer Books subscription ends in " + str(remaining) + " days."
+    else:
+        return
+    connection = db()
+    inserted = connection.execute("INSERT OR IGNORE INTO subscription_reminders(app_user_id,reminder_key) VALUES(?,?)", (user["id"], subscription["plan_key"] + ":" + subscription["ends_at"] + ":" + reminder_key))
+    if inserted.rowcount:
+        connection.execute("INSERT INTO app_notifications(recipient_user_id,kind,message,audience) VALUES(?,?,?,?)", (user["id"], "Subscription reminder", message, "user"))
+        connection.commit()
+
+
+def subscription_is_active(user):
+    if has_premium_privileges(user):
+        return True
+    subscription = ensure_subscription(user)
+    return bool(subscription and subscription["status"] == "Active")
+
+
+def subscription_limits(user):
+    if has_premium_privileges(user):
+        return SUBSCRIPTION_PLANS["premium"]
+    subscription = ensure_subscription(user)
+    return SUBSCRIPTION_PLANS.get(subscription["plan_key"] if subscription else "trial", SUBSCRIPTION_PLANS["trial"])
+
+
 def notify_administrators(kind, message):
     """Create one notification for every active ERP administrator."""
     admins = db().execute("SELECT id FROM app_users WHERE active=1 AND is_admin=1").fetchall()
-    db().executemany("INSERT INTO app_notifications(recipient_user_id,kind,message) VALUES(?,?,?)", [(admin["id"], kind, message) for admin in admins])
+    db().executemany("INSERT INTO app_notifications(recipient_user_id,kind,message,audience) VALUES(?,?,?,?)", [(admin["id"], kind, message, "admin") for admin in admins])
 
 
-def notification_count(user):
-    if not user or not user["is_admin"]:
+def notification_count(user, audience="user"):
+    if not user or (audience == "admin" and not user["is_admin"]):
         return 0
-    return db().execute("SELECT COUNT(*) FROM app_notifications WHERE recipient_user_id=? AND read_at IS NULL", (user["id"],)).fetchone()[0]
+    return db().execute("SELECT COUNT(*) FROM app_notifications WHERE recipient_user_id=? AND audience=? AND read_at IS NULL", (user["id"], audience)).fetchone()[0]
 
 
 def ensure_user_company_access(user):
@@ -603,7 +842,7 @@ def company_required():
 
 def company_user_admin_required(company):
     """Only the configured Owner or Administrator may manage company users."""
-    if session.get("user_role") not in ("Owner", "Administrator"):
+    if session.get("user_role") not in ("Owner", "Administrator") and "manage_users" not in company_role_permissions(company["id"], session.get("user_role")):
         flash("Owner or Administrator access is required to manage company users.", "error")
         return False
     return True
@@ -770,7 +1009,8 @@ def movements(company_id, start, end):
 @app.context_processor
 def global_values():
     company = active_company()
-    return {"active_company": company, "companies": visible_companies(), "currencies": currency_list(company), "base_currency": company["base_currency"] if company else "", "today": date.today().isoformat(), "today_iso": date.today().isoformat(), "current_app_user": signed_in_user(), "feature_flags": feature_states(company), "quick_search_items": workspace_search_items(company) if company else []}
+    user = signed_in_user()
+    return {"active_company": company, "companies": visible_companies(), "currencies": currency_list(company), "base_currency": company["base_currency"] if company else "", "today": date.today().isoformat(), "today_iso": date.today().isoformat(), "current_app_user": user, "feature_flags": available_feature_states(company, user), "quick_search_items": workspace_search_items(company) if company else [], "appearance": company_appearance(company)}
 
 
 @app.route("/")
@@ -805,6 +1045,11 @@ def sign_up():
                 "INSERT INTO app_users(display_name,email,password_hash,is_admin,profession,industry,discovery_source,last_login_at) VALUES(?,?,?,?,?,?,?,CURRENT_TIMESTAMP)",
                 (name, email, generate_password_hash(password), int(is_first_user), profession, industry, discovery_source),
             )
+            trial_starts = date.today()
+            trial_ends = trial_starts + timedelta(days=SUBSCRIPTION_PLANS["trial"]["duration_days"])
+            db().execute("INSERT INTO subscriptions(app_user_id,plan_key,status,starts_at,ends_at) VALUES(?,?,?,?,?)", (cursor.lastrowid, "trial", "Active", trial_starts.isoformat(), trial_ends.isoformat()))
+            db().execute("""INSERT INTO subscription_history(app_user_id,plan_key,status,starts_at,ends_at,amount,currency,changed_by_user_id)
+                VALUES(?,?,?,?,?,?,?,?)""", (cursor.lastrowid, "trial", "Active", trial_starts.isoformat(), trial_ends.isoformat(), 0, "INR", cursor.lastrowid))
             db().commit()
             session.clear()
             session.permanent = True
@@ -910,12 +1155,24 @@ def require_main_sign_in():
 
 
 @app.before_request
+def require_active_subscription():
+    """Allow plan selection and notifications when a trial/subscription has ended."""
+    allowed = {"dashboard", "sign_in", "sign_up", "admin_sign_in", "forgot_password", "change_password", "subscription", "user_notifications", "current_user_json", "user_logout", "service_worker", "static"}
+    if request.endpoint in allowed or request.path.startswith("/static/"):
+        return None
+    user = signed_in_user()
+    if user and not subscription_is_active(user):
+        flash("Your subscription has ended. Select a plan to continue.", "error")
+        return redirect(url_for("subscription"))
+
+
+@app.before_request
 def enforce_feature_settings():
     """Keep optional company modules unavailable when their feature switch is off."""
     feature = FEATURE_ENDPOINTS.get(request.endpoint)
     company = active_company()
-    if feature and company and not feature_states(company).get(feature, True):
-        flash("This feature is currently disabled in Workspace settings.", "error")
+    if feature and company and not available_feature_states(company).get(feature, True):
+        flash("This feature is unavailable for your subscription plan or disabled in Workspace settings.", "error")
         return redirect(url_for("workspace_settings"))
 
 
@@ -924,9 +1181,38 @@ def companies_dashboard():
     return render_template("companies.html", show_form=False)
 
 
+@app.route("/subscription", methods=["GET", "POST"])
+def subscription():
+    user = signed_in_user()
+    if not user:
+        return redirect(url_for("sign_in"))
+    current = ensure_subscription(user)
+    if request.method == "POST":
+        plan_key = request.form.get("plan", "")
+        if plan_key not in ("standard", "premium"):
+            flash("Choose Standard or Premium to activate a subscription.", "error")
+        else:
+            starts = date.today()
+            ends = starts + timedelta(days=SUBSCRIPTION_PLANS[plan_key]["duration_days"])
+            connection = db()
+            connection.execute("UPDATE subscriptions SET plan_key=?,status='Active',starts_at=?,ends_at=?,updated_at=CURRENT_TIMESTAMP WHERE app_user_id=?", (plan_key, starts.isoformat(), ends.isoformat(), user["id"]))
+            price = subscription_prices()[plan_key]
+            connection.execute("""INSERT INTO subscription_history(app_user_id,plan_key,status,starts_at,ends_at,amount,currency,changed_by_user_id)
+                VALUES(?,?,?,?,?,?,?,?)""", (user["id"], plan_key, "Active", starts.isoformat(), ends.isoformat(), price["amount"], price["currency"], user["id"]))
+            connection.commit()
+            flash(SUBSCRIPTION_PLANS[plan_key]["name"] + " subscription activated for 30 days.", "success")
+            return redirect(url_for("companies_dashboard"))
+    return render_template("subscription.html", plans=SUBSCRIPTION_PLANS, subscription=current, prices=subscription_prices(), premium_access=has_premium_privileges(user), today=date.today())
+
+
 @app.route("/companies/new", methods=["GET", "POST"])
 def company_new():
     if request.method == "POST":
+        app_user = signed_in_user()
+        limits = subscription_limits(app_user)
+        if limits["companies"] is not None and len(visible_companies()) >= limits["companies"]:
+            flash("Your Standard plan allows up to " + str(limits["companies"]) + " companies. Upgrade to Premium to add more.", "error")
+            return redirect(url_for("companies_dashboard"))
         values = {key: request.form.get(key, "").strip() for key in ("name", "legal_name", "tax_number", "address", "mobile", "email", "financial_year_start", "financial_year_end")}
         currency = "INR"
         try:
@@ -938,7 +1224,6 @@ def company_new():
             connection.executemany("INSERT INTO accounts(company_id,code,name,category,is_cash) VALUES(?,?,?,?,?)", [(company.lastrowid, *account) for account in DEFAULT_ACCOUNTS])
             connection.execute("INSERT INTO currencies(company_id,code,name,rate_to_base) VALUES(?,?,?,1)", (company.lastrowid, currency, f"{currency} base currency"))
             connection.executemany("INSERT INTO document_series(company_id,document_type,number_mode,prefix,next_number) VALUES(?,?,?,?,?)", [(company.lastrowid, kind, "automatic", DEFAULT_SERIES[kind], 1) for kind in DOCUMENT_TYPES])
-            app_user = signed_in_user()
             if app_user:
                 connection.execute("INSERT OR IGNORE INTO company_users(company_id,username,email,role,active) VALUES(?,?,?,?,1)", (company.lastrowid, app_user["display_name"], app_user["email"], "Owner"))
                 connection.execute("INSERT OR IGNORE INTO company_access(app_user_id,company_id,role) VALUES(?,?,?)", (app_user["id"], company.lastrowid, "Owner"))
@@ -1019,6 +1304,20 @@ def workspace_settings():
     if not company: return redirect(url_for("companies_dashboard"))
     if request.method == "POST":
         connection = db()
+        if request.form.get("form_type") == "profile":
+            user = signed_in_user()
+            display_name = request.form.get("display_name", "").strip()
+            email = request.form.get("email", "").strip().casefold()
+            if not user or not display_name or "@" not in email:
+                flash("Enter your name and a valid email address.", "error")
+                return redirect(url_for("workspace_settings"))
+            try:
+                connection.execute("UPDATE app_users SET display_name=?,email=?,phone=?,preferred_language=?,preferred_timezone=?,preferred_date_format=?,preferred_time_format=?,items_per_page=? WHERE id=?", (display_name, email, request.form.get("phone", "").strip(), request.form.get("language", "English").strip(), request.form.get("timezone", "Asia/Dubai").strip(), request.form.get("date_format", "DD-MM-YYYY").strip(), request.form.get("time_format", "12-hour").strip(), request.form.get("items_per_page", "10").strip(), user["id"]))
+                audit(company["id"], "Profile preferences updated", display_name)
+                connection.commit(); flash("Profile and preferences saved.", "success")
+            except sqlite3.IntegrityError:
+                flash("That email address is already used by another account.", "error")
+            return redirect(url_for("workspace_settings"))
         for key, _name, _description in WORKSPACE_FEATURES:
             connection.execute("INSERT INTO feature_settings(company_id,feature_key,enabled) VALUES(?,?,?) ON CONFLICT(company_id,feature_key) DO UPDATE SET enabled=excluded.enabled", (company["id"], key, int(bool(request.form.get(key)))))
         regions_enabled = int(bool(request.form.get("regions")))
@@ -1027,7 +1326,24 @@ def workspace_settings():
         connection.commit()
         flash("Feature settings saved.", "success")
         return redirect(url_for("workspace_settings"))
-    return render_template("workspace_settings.html", features=WORKSPACE_FEATURES, states=feature_states(company))
+    return render_template("workspace_settings.html", features=WORKSPACE_FEATURES, states=feature_states(company), profile=signed_in_user())
+
+
+@app.route("/settings/appearance", methods=["GET", "POST"])
+def appearance_settings():
+    company = company_required()
+    if not company: return redirect(url_for("companies_dashboard"))
+    if request.method == "POST":
+        light = request.form.get("light_palette", "peacock")
+        dark = request.form.get("dark_palette", "midnight")
+        if light not in APPEARANCE_PALETTES["light"] or dark not in APPEARANCE_PALETTES["dark"]:
+            flash("Choose a valid light and dark palette.", "error")
+        else:
+            db().execute("UPDATE company_settings SET light_palette=?,dark_palette=? WHERE company_id=?", (light, dark, company["id"]))
+            audit(company["id"], "Appearance updated", f"Light: {light}; Dark: {dark}")
+            db().commit(); flash("Colour palettes saved.", "success")
+            return redirect(url_for("appearance_settings"))
+    return render_template("appearance_settings.html", palettes=APPEARANCE_PALETTES, selected=company_appearance(company))
 
 
 @app.route("/help")
@@ -1633,8 +1949,13 @@ def user_authorisations():
         try:
             username, role = request.form.get("username", "").strip(), request.form.get("role", "Accountant")
             password = request.form.get("password", "")
-            if not username or role not in ("Owner", "Administrator", "Accountant", "Viewer"): raise ValueError
+            valid_roles = {item["name"] for item in company_roles(company["id"]) if item["active"]}
+            if not username or role not in valid_roles: raise ValueError
             existing = db().execute("SELECT id,password_hash FROM company_users WHERE company_id=? AND username=? COLLATE NOCASE", (company["id"], username)).fetchone()
+            user_limit = subscription_limits(signed_in_user())["users"]
+            if not existing and user_limit is not None and db().execute("SELECT COUNT(*) FROM company_users WHERE company_id=? AND active=1", (company["id"],)).fetchone()[0] >= user_limit:
+                flash("Your Standard plan allows up to " + str(user_limit) + " active users per company. Upgrade to Premium to add more.", "error")
+                return redirect(url_for("user_authorisations"))
             if not password and not existing: raise ValueError
             password_hash = generate_password_hash(password.casefold()) if password else existing["password_hash"]
             if existing:
@@ -1645,7 +1966,18 @@ def user_authorisations():
         except (ValueError, sqlite3.IntegrityError): flash("Enter a user name and valid access level.", "error")
         return redirect(url_for("user_authorisations"))
     users = db().execute("SELECT * FROM company_users WHERE company_id=? ORDER BY username", (company["id"],)).fetchall()
-    return render_template("user_authorisations.html", users=users, is_owner=session.get("user_role") == "Owner")
+    roles = company_roles(company["id"])
+    role_counts = {role["name"]: sum(1 for user in users if user["role"] == role["name"]) for role in roles}
+    return render_template(
+        "user_authorisations.html",
+        users=users,
+        roles=roles,
+        permission_options=ROLE_PERMISSION_OPTIONS,
+        role_counts=role_counts,
+        active_role_count=sum(1 for count in role_counts.values() if count),
+        active_user_count=sum(1 for user in users if user["active"]),
+        is_owner=session.get("user_role") == "Owner",
+    )
 
 
 @app.route("/master/users/<int:user_id>/edit", methods=["GET", "POST"])
@@ -1660,7 +1992,8 @@ def edit_user_authorisation(user_id):
             username = request.form.get("username", "").strip()
             role = request.form.get("role", "Accountant")
             password = request.form.get("password", "")
-            if not username or role not in ("Owner", "Administrator", "Accountant", "Viewer"): raise ValueError
+            valid_roles = {item["name"] for item in company_roles(company["id"]) if item["active"]}
+            if not username or role not in valid_roles: raise ValueError
             if db().execute("SELECT 1 FROM company_users WHERE company_id=? AND username=? COLLATE NOCASE AND id<>?", (company["id"], username, user_id)).fetchone(): raise ValueError
             password_hash = generate_password_hash(password.casefold()) if password else user["password_hash"]
             active = int(bool(request.form.get("active")))
@@ -1672,15 +2005,68 @@ def edit_user_authorisation(user_id):
             db().commit(); flash("User details updated.", "success")
             return redirect(url_for("user_authorisations"))
         except (ValueError, sqlite3.IntegrityError): flash("Enter valid user details. Keep at least one active user while sign-in is enabled.", "error")
-    return render_template("edit_user_authorisation.html", user=user)
+    return render_template("edit_user_authorisation.html", user=user, roles=company_roles(company["id"]))
+
+
+@app.route("/master/roles", methods=["POST"])
+def create_company_role():
+    company = company_required()
+    if not company: return redirect(url_for("companies_dashboard"))
+    if not company_user_admin_required(company): return redirect(url_for("analysis"))
+    try:
+        name = request.form.get("name", "").strip()
+        description = request.form.get("description", "").strip()
+        permissions = [key for key, _label, _description in ROLE_PERMISSION_OPTIONS if key in request.form.getlist("permissions")]
+        if not name or len(name) > 50: raise ValueError
+        db().execute("INSERT INTO company_roles(company_id,name,description,permissions,active) VALUES(?,?,?,?,?)", (company["id"], name, description, json.dumps(permissions), int(bool(request.form.get("active")))))
+        audit(company["id"], "Role created", name)
+        db().commit(); flash("Role created.", "success")
+    except (ValueError, sqlite3.IntegrityError):
+        flash("Use a unique role name and choose its permissions.", "error")
+    return redirect(url_for("user_authorisations", tab="roles"))
+
+
+@app.route("/master/roles/<int:role_id>/edit", methods=["GET", "POST"])
+def edit_company_role(role_id):
+    company = company_required()
+    if not company: return redirect(url_for("companies_dashboard"))
+    if not company_user_admin_required(company): return redirect(url_for("analysis"))
+    role = db().execute("SELECT * FROM company_roles WHERE id=? AND company_id=?", (role_id, company["id"])).fetchone()
+    if not role: return redirect(url_for("user_authorisations", tab="roles"))
+    if request.method == "POST":
+        try:
+            name = request.form.get("name", "").strip()
+            description = request.form.get("description", "").strip()
+            permissions = [key for key, _label, _description in ROLE_PERMISSION_OPTIONS if key in request.form.getlist("permissions")]
+            if not name or len(name) > 50: raise ValueError
+            db().execute("UPDATE company_roles SET name=?,description=?,permissions=?,active=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND company_id=?", (name, description, json.dumps(permissions), int(bool(request.form.get("active"))), role_id, company["id"]))
+            db().execute("UPDATE company_users SET role=? WHERE company_id=? AND role=?", (name, company["id"], role["name"]))
+            audit(company["id"], "Role updated", f"{role['name']} changed to {name}")
+            db().commit(); flash("Role updated.", "success")
+            return redirect(url_for("user_authorisations", tab="roles"))
+        except (ValueError, sqlite3.IntegrityError):
+            flash("Use a unique role name and choose its permissions.", "error")
+    try: selected_permissions = set(json.loads(role["permissions"] or "[]"))
+    except (TypeError, ValueError): selected_permissions = set()
+    return render_template("edit_company_role.html", role=role, permission_options=ROLE_PERMISSION_OPTIONS, selected_permissions=selected_permissions)
 
 
 @app.route("/master/user-authorisations/setting", methods=["POST"])
 def user_authorisation_setting():
-    company = company_required()
-    if not company: return redirect(url_for("companies_dashboard"))
-    if not company_user_admin_required(company): return redirect(url_for("analysis"))
-    enabled = int(bool(request.form.get("auth_enabled")))
+    requested_company_id = request.form.get("company_id", type=int)
+    company = active_company()
+    if not company and requested_company_id:
+        company = db().execute("SELECT * FROM companies WHERE id=? AND name <> 'Imported company'", (requested_company_id,)).fetchone()
+    app_user = signed_in_user()
+    if not company or not app_user or not user_company_access(app_user, company["id"]):
+        flash("Select a company first.", "error")
+        return redirect(url_for("companies_dashboard"))
+    access = user_company_access(app_user, company["id"])
+    can_manage = session.get("user_role") in ("Owner", "Administrator") or (access and access["role"] in ("Owner", "Administrator")) or "manage_users" in company_role_permissions(company["id"], session.get("user_role"))
+    if not can_manage:
+        flash("Owner or Administrator access is required to change company sign-in.", "error")
+        return redirect(url_for("analysis"))
+    enabled = int(any(value in ("1", "on", "true") for value in request.form.getlist("auth_enabled")))
     if enabled and not db().execute("SELECT 1 FROM company_users WHERE company_id=? AND active=1 AND password_hash IS NOT NULL AND trim(password_hash)<>''", (company["id"],)).fetchone():
         flash("Add an active user with a login password before enabling user authorisation.", "error")
         return redirect(url_for("user_authorisations"))
@@ -1706,6 +2092,7 @@ def user_login(company_id):
             session.permanent = True
             session["company_id"], session["username"], session["user_role"] = company_id, user["username"], user["role"]
             session["company_user_authenticated_for"] = company_id
+            db().execute("UPDATE company_users SET last_active_at=CURRENT_TIMESTAMP WHERE id=?", (user["id"],))
             audit(company_id, "User login", f"Role: {user['role']}"); db().commit(); return redirect(url_for("analysis"))
         flash("Invalid user name or password.", "error")
     return render_template("user_login.html", company=company)
@@ -1742,13 +2129,33 @@ def activity_records():
     return render_template("activity_records.html", rows=rows)
 
 
+@app.route("/notifications", methods=["GET", "POST"])
+def user_notifications():
+    user = signed_in_user()
+    if not user:
+        return redirect(url_for("sign_in"))
+    if request.method == "POST":
+        db().execute("UPDATE app_notifications SET read_at=CURRENT_TIMESTAMP WHERE recipient_user_id=? AND audience='user' AND read_at IS NULL", (user["id"],))
+        db().commit()
+        return redirect(url_for("user_notifications"))
+    subscription = ensure_subscription(user)
+    notices = db().execute("SELECT * FROM app_notifications WHERE recipient_user_id=? AND audience='user' ORDER BY id DESC LIMIT 250", (user["id"],)).fetchall()
+    unread = notification_count(user, "user")
+    notification_types = sorted({notice["kind"] for notice in notices})
+    return render_template("user_notifications.html", notifications=notices, unread=unread, notification_types=notification_types, subscription=subscription, plans=SUBSCRIPTION_PLANS)
+
+
 @app.route("/current-user.json")
 def current_user_json():
     """Small UI helper for the signed-in name shown in the application header."""
     user = signed_in_user()
     if not user:
         return {"name": "", "role": ""}, 401
-    return {"name": user["display_name"], "role": session.get("user_role", "Zedjer user"), "is_admin": bool(user["is_admin"]), "has_active_company": bool(active_company())}
+    subscription = ensure_subscription(user)
+    unread = notification_count(user, "user")
+    admin_unread = notification_count(user, "admin")
+    premium_access = has_premium_privileges(user)
+    return {"name": user["display_name"], "role": session.get("user_role", "Zedjer user"), "is_admin": bool(user["is_admin"]), "has_active_company": bool(active_company()), "notification_count": unread, "admin_notification_count": admin_unread, "subscription_plan": "Premium access" if premium_access else SUBSCRIPTION_PLANS[subscription["plan_key"]]["name"], "subscription_ends_at": subscription["ends_at"], "subscription_status": "Always active" if premium_access else subscription["status"], "premium_access": premium_access}
 
 
 @app.route("/admin/users")
@@ -1760,10 +2167,76 @@ def admin_users():
     users = db().execute("""SELECT au.*, COALESCE(GROUP_CONCAT(c.name, ' · '),'No companies assigned') AS company_names
         FROM app_users au LEFT JOIN company_access ca ON ca.app_user_id=au.id
         LEFT JOIN companies c ON c.id=ca.company_id AND c.name <> 'Imported company'
+        LEFT JOIN subscriptions s ON s.app_user_id=au.id
         GROUP BY au.id ORDER BY au.is_admin DESC, au.display_name COLLATE NOCASE""").fetchall()
     reset_requests = db().execute("""SELECT pr.*,au.display_name,au.email FROM password_reset_requests pr
         JOIN app_users au ON au.id=pr.app_user_id WHERE pr.status='Pending' ORDER BY pr.requested_at""").fetchall()
-    return render_template("admin_users.html", users=users, reset_requests=reset_requests, user_limit=app_user_limit(), active_user_count=sum(1 for item in users if item["active"]), notification_count=notification_count(user))
+    connection = db()
+    users = connection.execute("""SELECT au.*,s.plan_key,s.status AS subscription_status,s.starts_at AS subscription_starts_at,s.ends_at AS subscription_ends_at,
+        COALESCE(GROUP_CONCAT(c.name),'No companies assigned') AS company_names
+        FROM app_users au LEFT JOIN company_access ca ON ca.app_user_id=au.id
+        LEFT JOIN companies c ON c.id=ca.company_id AND c.name <> 'Imported company'
+        LEFT JOIN subscriptions s ON s.app_user_id=au.id
+        GROUP BY au.id ORDER BY au.is_admin DESC, au.display_name COLLATE NOCASE""").fetchall()
+    total_revenue = connection.execute("SELECT COALESCE(SUM(amount),0) FROM subscription_history WHERE plan_key IN ('standard','premium')").fetchone()[0]
+    monthly_revenue = connection.execute("SELECT COALESCE(SUM(amount),0) FROM subscription_history WHERE plan_key IN ('standard','premium') AND substr(created_at,1,7)=?", (date.today().strftime("%Y-%m"),)).fetchone()[0]
+    revenue_by_plan = {row["plan_key"]: {"revenue": float(row["revenue"] or 0), "sales": row["sales"], "currencies": row["currencies"] or "INR"} for row in connection.execute("""SELECT plan_key,COALESCE(SUM(amount),0) AS revenue,COUNT(*) AS sales,GROUP_CONCAT(DISTINCT currency) AS currencies
+        FROM subscription_history WHERE plan_key IN ('standard','premium') GROUP BY plan_key""").fetchall()}
+    revenue_by_currency = connection.execute("""SELECT currency,COALESCE(SUM(amount),0) AS revenue,COUNT(*) AS sales
+        FROM subscription_history WHERE plan_key IN ('standard','premium') GROUP BY currency ORDER BY currency""").fetchall()
+    plan_counts = {row["plan_key"]: row["total"] for row in connection.execute("SELECT plan_key,COUNT(*) AS total FROM subscriptions WHERE status='Active' GROUP BY plan_key").fetchall()}
+    plan_features = {plan: {row["feature_key"]: bool(row["enabled"]) for row in connection.execute("SELECT feature_key,enabled FROM subscription_plan_features WHERE plan_key=?", (plan,)).fetchall()} for plan in ("trial", "standard", "premium")}
+    return render_template("admin_users.html", users=users, reset_requests=reset_requests, user_limit=app_user_limit(), active_user_count=sum(1 for item in users if item["active"]), notification_count=notification_count(user, "admin"), total_revenue=float(total_revenue or 0), monthly_revenue=float(monthly_revenue or 0), revenue_by_plan=revenue_by_plan, revenue_by_currency=revenue_by_currency, plan_counts=plan_counts, prices=subscription_prices(), plan_features=plan_features, plan_feature_list=WORKSPACE_FEATURES, total_users=len(users))
+
+
+@app.route("/admin/subscription-pricing", methods=["POST"])
+def admin_subscription_pricing():
+    admin = signed_in_user()
+    if not admin or not admin["is_admin"]:
+        return redirect(url_for("sign_in"))
+    try:
+        values = {key: {"amount": float(request.form.get(key + "_price", "0")), "currency": request.form.get(key + "_currency", "INR").strip().upper()} for key in ("standard", "premium")}
+        if any(value["amount"] < 0 or len(value["currency"]) != 3 or not value["currency"].isalpha() for value in values.values()):
+            raise ValueError
+    except ValueError:
+        flash("Enter valid positive subscription prices.", "error")
+        return redirect(url_for("admin_users"))
+    connection = db()
+    for key, value in values.items():
+        connection.execute("UPDATE subscription_prices SET amount=?,currency=?,updated_at=CURRENT_TIMESTAMP WHERE plan_key=?", (value["amount"], value["currency"], key))
+    connection.commit()
+    flash("Subscription prices updated. Future plan selections will be recorded in revenue.", "success")
+    return redirect(url_for("admin_users"))
+
+
+@app.route("/admin/subscription-features", methods=["POST"])
+def admin_subscription_features():
+    admin = signed_in_user()
+    if not admin or not admin["is_admin"]:
+        return redirect(url_for("sign_in"))
+    connection = db()
+    for plan_key in ("trial", "standard", "premium"):
+        for feature_key, _name, _description in WORKSPACE_FEATURES:
+            enabled = int(bool(request.form.get(plan_key + "_" + feature_key)))
+            connection.execute("""INSERT INTO subscription_plan_features(plan_key,feature_key,enabled) VALUES(?,?,?)
+                ON CONFLICT(plan_key,feature_key) DO UPDATE SET enabled=excluded.enabled""", (plan_key, feature_key, enabled))
+    connection.commit()
+    flash("Subscription feature access updated for all plans.", "success")
+    return redirect(url_for("admin_users"))
+
+
+@app.route("/admin/users/<int:user_id>/subscription-history")
+def admin_subscription_history(user_id):
+    admin = signed_in_user()
+    if not admin or not admin["is_admin"]:
+        return redirect(url_for("sign_in"))
+    account = db().execute("SELECT * FROM app_users WHERE id=?", (user_id,)).fetchone()
+    if not account:
+        flash("User was not found.", "error")
+        return redirect(url_for("admin_users"))
+    current = ensure_subscription(account)
+    history = db().execute("SELECT * FROM subscription_history WHERE app_user_id=? ORDER BY id DESC", (user_id,)).fetchall()
+    return render_template("admin_subscription_history.html", account=account, subscription=current, history=history, premium_access=has_premium_privileges(account))
 
 
 @app.route("/admin/notifications", methods=["GET", "POST"])
@@ -1772,10 +2245,12 @@ def admin_notifications():
     if not admin or not admin["is_admin"]:
         return redirect(url_for("sign_in"))
     if request.method == "POST":
-        db().execute("UPDATE app_notifications SET read_at=CURRENT_TIMESTAMP WHERE recipient_user_id=? AND read_at IS NULL", (admin["id"],)); db().commit()
+        db().execute("UPDATE app_notifications SET read_at=CURRENT_TIMESTAMP WHERE recipient_user_id=? AND audience='admin' AND read_at IS NULL", (admin["id"],)); db().commit()
         return redirect(url_for("admin_notifications"))
-    notifications = db().execute("SELECT * FROM app_notifications WHERE recipient_user_id=? ORDER BY id DESC LIMIT 250", (admin["id"],)).fetchall()
-    return render_template("admin_notifications.html", notifications=notifications, notification_count=notification_count(admin))
+    notifications = db().execute("SELECT * FROM app_notifications WHERE recipient_user_id=? AND audience='admin' ORDER BY id DESC LIMIT 250", (admin["id"],)).fetchall()
+    unread = notification_count(admin, "admin")
+    notification_types = sorted({notification["kind"] for notification in notifications})
+    return render_template("admin_notifications.html", notifications=notifications, notification_count=unread, unread=unread, notification_types=notification_types)
 
 
 @app.route("/admin/user-limit", methods=["POST"])
@@ -1851,6 +2326,7 @@ def select_company():
             return redirect(url_for("user_login", company_id=company_id))
         session.permanent = True
         session["company_id"], session["username"], session["user_role"] = company_id, app_user["display_name"], access["role"]
+        db().execute("UPDATE company_users SET last_active_at=CURRENT_TIMESTAMP WHERE company_id=? AND lower(trim(email))=lower(trim(?))", (company_id, app_user["email"]))
         audit(company_id, "Company selected", f"Email sign-in: {app_user['email']}")
         db().commit()
         flash("Company selected.", "success")

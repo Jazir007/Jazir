@@ -9,7 +9,7 @@
     <label>Contact number<input name="contact_no" value="{{ user.contact_no or '' }}"></label>
     <label>Email address<input name="email" type="email" value="{{ user.email or '' }}"></label>
     <label>New login password<input name="password" type="password" placeholder="Leave blank to keep unchanged"></label>
-    <label>Access level<select name="role"><option {% if user.role == 'Owner' %}selected{% endif %}>Owner</option><option {% if user.role == 'Administrator' %}selected{% endif %}>Administrator</option><option {% if user.role == 'Accountant' %}selected{% endif %}>Accountant</option><option {% if user.role == 'Viewer' %}selected{% endif %}>Viewer</option></select></label>
+    <label>Access level<select name="role">{% for role in roles %}<option {% if user.role == role.name %}selected{% endif %} {% if not role.active and user.role != role.name %}disabled{% endif %}>{{ role.name }}</option>{% endfor %}</select></label>
     <label class="check"><input type="checkbox" name="active" {% if user.active %}checked{% endif %}>Active user</label>
     <div class="actions"><a class="secondary" href="{{ url_for('user_authorisations') }}">Cancel</a><button class="primary">Save changes</button></div>
   </form>

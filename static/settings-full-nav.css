@@ -1,0 +1,16 @@
+/* The Account Settings rail is intentionally kept fully labelled. */
+@media(min-width:821px){body.settings-immersive .full-settings-layout{grid-template-columns:255px minmax(0,1fr)!important}body.settings-immersive .settings-nav{width:auto!important;padding:15px 10px!important;overflow:visible!important;box-shadow:0 10px 25px rgba(17,88,103,.05)!important}body.settings-immersive .settings-nav p{height:auto!important;margin:10px 10px 7px!important;opacity:1!important;overflow:visible!important}body.settings-immersive .settings-nav p:not(:first-child){margin-top:21px!important}body.settings-immersive .settings-nav a{display:block!important;width:auto!important;height:auto!important;margin:0!important;padding:10px 12px!important;border-left:3px solid transparent!important;border-radius:0!important;font-size:13px!important;overflow:visible!important}body.settings-immersive .settings-nav a:before{display:none!important}body.settings-immersive .settings-nav a.active{border-left-color:#0b9e98!important;background:linear-gradient(90deg,#e2f7f6,transparent)!important}}
+/* Dedicated full Settings view: labelled menu, no inherited ERP rail and no empty centre gap. */
+@media(min-width:821px){
+body.settings-immersive>aside{display:none!important}
+body.settings-immersive main{padding-left:32px!important;padding-right:32px!important}
+body.settings-immersive .full-settings-intro,body.settings-immersive .full-settings-layout{max-width:none!important;margin-left:0!important;margin-right:0!important}
+body.settings-immersive .full-settings-layout{grid-template-columns:220px minmax(0,1fr)!important;gap:16px!important}
+body.settings-immersive .settings-nav{display:block!important;width:220px!important;padding:15px 10px!important;overflow-y:auto!important;overflow-x:hidden!important}
+body.settings-immersive .settings-nav p{display:block!important;height:auto!important;margin:10px 10px 7px!important;opacity:1!important;color:#78909b!important;white-space:normal!important}
+body.settings-immersive .settings-nav p:not(:first-child){margin-top:21px!important}
+body.settings-immersive .settings-nav a{display:block!important;width:100%!important;height:auto!important;margin:0!important;padding:10px 12px!important;border-left:3px solid transparent!important;border-radius:0!important;font-size:13px!important;line-height:1.25!important;white-space:normal!important;overflow:visible!important;color:#46616d!important}
+body.settings-immersive .settings-nav a:before{display:none!important}
+body.settings-immersive .settings-nav a.active{border-left-color:#0b9e98!important;background:linear-gradient(90deg,#e2f7f6,transparent)!important;color:#087d90!important}
+body.dark-mode.settings-immersive .settings-nav a{color:#c6dfe5!important}body.dark-mode.settings-immersive .settings-nav a.active{background:linear-gradient(90deg,#174e5a,transparent)!important;color:#91ebe5!important}
+}

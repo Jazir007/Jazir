@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% block heading %}Edit role{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='permissions.css') }}">
+<section class="panel role-editor-page">
+  <div class="panel-title"><div><h2>{{ role.name }}</h2><p class="hint">Define what this role can access in this company.</p></div><a class="secondary" href="{{ url_for('user_authorisations', tab='roles') }}">Back to roles</a></div>
+  <form method="post" class="form-grid role-editor-form">
+    <label>Role name<input name="name" value="{{ role.name }}" maxlength="50" required></label>
+    <label>Role status<select name="active"><option value="1" {% if role.active %}selected{% endif %}>Active</option><option value="" {% if not role.active %}selected{% endif %}>Inactive</option></select></label>
+    <label class="wide-field">Description<input name="description" value="{{ role.description or '' }}" placeholder="e.g. Can prepare reports and manage transactions"></label>
+    <fieldset class="permission-checklist wide-field"><legend>Permissions</legend>{% for key,label,description in permission_options %}<label><input type="checkbox" name="permissions" value="{{ key }}" {% if key in selected_permissions %}checked{% endif %}><span><b>{{ label }}</b><small>{{ description }}</small></span></label>{% endfor %}</fieldset>
+    <div class="actions"><a class="secondary" href="{{ url_for('user_authorisations', tab='roles') }}">Cancel</a><button class="primary">Save role</button></div>
+  </form>
+</section>
+{% endblock %}

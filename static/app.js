@@ -13,6 +13,16 @@ document.addEventListener('DOMContentLoaded', () => {
       caption.textContent = index === 3 ? 'Cash movement in selected period' : 'Selected period';
       card.append(caption);
     });
+    const filterToggle = document.querySelector('#dashboard-filter-toggle');
+    const filterPanel = document.querySelector('#dashboard-filter-panel');
+    const filterTrigger = document.querySelector('.dashboard-filter-trigger');
+    document.querySelector('main > header > div')?.append(filterTrigger);
+    filterToggle?.addEventListener('click', () => {
+      const open = filterPanel.hidden;
+      filterPanel.hidden = !open;
+      filterToggle.setAttribute('aria-expanded', String(open));
+      filterToggle.classList.toggle('active', open);
+    });
   }
   if (location.pathname === '/banking/import') {
     const note = document.querySelector('.panel .hint');
@@ -25,12 +35,51 @@ document.addEventListener('DOMContentLoaded', () => {
     companyName.addEventListener('click', openDashboard);
     companyName.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openDashboard(); } });
   }
+  const paletteValue = (name, fallback) => getComputedStyle(document.body).getPropertyValue(name).trim() || fallback;
+  const recolorWorkspaceCharts = () => {
+    if (!window.Chart) return;
+    const primary = paletteValue('--theme-primary', '#087b9b');
+    const secondary = paletteValue('--theme-secondary', '#0f9d99');
+    const deep = paletteValue('--theme-deep', '#07536d');
+    const mix = (first, second, weight = .5) => {
+      const parse = value => value.replace('#', '').match(/.{2}/g)?.map(part => parseInt(part, 16)) || [0, 0, 0];
+      const a = parse(first), b = parse(second), blend = index => Math.round(a[index] * (1 - weight) + b[index] * weight).toString(16).padStart(2, '0');
+      return `#${blend(0)}${blend(1)}${blend(2)}`;
+    };
+    const chartPalette = [primary, secondary, mix(primary, secondary), mix(primary, '#ffffff', .25), mix(secondary, '#ffffff', .18), deep, mix(deep, secondary, .6)];
+    const legacyPrimary = new Set(['#287c9a', '#007b9a', '#087b9b', '#0a708c', '#075d7b']);
+    const legacySecondary = new Set(['#0c9b97', '#00a99d', '#0f9d99', '#11a49a', '#0b8e88']);
+    Object.values(Chart.instances || {}).forEach(chart => {
+      (chart.data?.datasets || []).forEach(dataset => {
+        const label = String(dataset.label || '').toLowerCase();
+        if (label.includes('principal')) dataset.backgroundColor = primary;
+        if (label.includes('closing balance')) {
+          dataset.borderColor = secondary; dataset.backgroundColor = secondary; dataset.pointBackgroundColor = secondary;
+        }
+        if (Array.isArray(dataset.backgroundColor)) {
+          const canvasId = chart.canvas?.id || '';
+          dataset.backgroundColor = canvasId === 'cashflow-chart'
+            ? ['#1aa36f', '#f0a23a', Number(dataset.data?.[2]) < 0 ? '#c73745' : primary]
+            : dataset.backgroundColor.map((_, index) => chartPalette[index % chartPalette.length]);
+        }
+        if (typeof dataset.backgroundColor === 'string' && legacyPrimary.has(dataset.backgroundColor.toLowerCase())) dataset.backgroundColor = primary;
+        if (typeof dataset.borderColor === 'string' && legacyPrimary.has(dataset.borderColor.toLowerCase())) dataset.borderColor = primary;
+        if (typeof dataset.borderColor === 'string' && legacySecondary.has(dataset.borderColor.toLowerCase())) dataset.borderColor = secondary;
+      });
+      chart.update('none');
+    });
+  };
+  window.zedjerApplyChartPalette = recolorWorkspaceCharts;
+  document.addEventListener('click', event => {
+    if (event.target.closest('[data-drill]')) setTimeout(recolorWorkspaceCharts, 0);
+  });
   const applyTheme = dark => {
     document.body.classList.toggle('dark-mode', dark);
     if (window.Chart) {
       Chart.defaults.color = dark ? '#c4dce4' : '#617783';
       Chart.defaults.borderColor = dark ? 'rgba(132,181,194,.24)' : 'rgba(97,119,131,.16)';
-      Object.values(Chart.instances || {}).forEach(chart => { chart.options.color = Chart.defaults.color; chart.update(); });
+      Object.values(Chart.instances || {}).forEach(chart => { chart.options.color = Chart.defaults.color; });
+      recolorWorkspaceCharts();
     }
   };
   applyTheme(localStorage.getItem('zedjer-theme') === 'dark');
@@ -57,7 +106,7 @@ document.addEventListener('DOMContentLoaded', () => {
       .theme-toggle{overflow:hidden;position:relative;border:1px solid rgba(255,255,255,.62)!important;background:linear-gradient(135deg,rgba(255,255,255,.64),rgba(210,249,250,.3))!important;backdrop-filter:blur(13px) saturate(1.35);-webkit-backdrop-filter:blur(13px) saturate(1.35);box-shadow:inset 0 1px 1px rgba(255,255,255,.75),inset 0 -1px 5px rgba(11,83,105,.08),0 7px 18px rgba(14,79,104,.14)!important;transition:transform .22s ease,box-shadow .22s ease,background .28s ease}
       .dark-mode .theme-toggle{background:linear-gradient(135deg,rgba(80,147,187,.4),rgba(15,88,114,.34))!important;border-color:rgba(177,238,255,.28)!important;box-shadow:inset 0 1px 1px rgba(226,255,255,.18),inset 0 -1px 6px rgba(0,16,40,.22),0 8px 20px rgba(0,0,0,.28)!important}
       .theme-toggle:hover{transform:translateY(-2px) scale(1.05);box-shadow:inset 0 1px 1px rgba(255,255,255,.78),0 11px 23px rgba(13,84,110,.2)!important}
-      .user-control{position:relative}.user-chip{cursor:pointer;border:0;font:inherit;text-align:left}.user-control-menu{position:absolute;top:calc(100% + 9px);right:0;z-index:70;display:grid;min-width:188px;padding:7px;border:1px solid rgba(186,218,229,.84);border-radius:14px;background:rgba(252,255,255,.9);box-shadow:0 14px 30px rgba(12,73,94,.16);backdrop-filter:blur(14px);opacity:0;visibility:hidden;transform:translateY(-7px) scale(.97);transition:opacity .18s ease,transform .18s ease,visibility .18s}.user-control.open .user-control-menu{opacity:1;visibility:visible;transform:none}.user-control-menu form{margin:0}.user-control-menu button,.user-control-menu a{display:block;width:100%;padding:10px 11px;border:0;border-radius:9px;background:transparent;color:#24505f;font:700 12px inherit;text-align:left;text-decoration:none;cursor:pointer}.user-control-menu button:hover,.user-control-menu a:hover{background:#e8f6f8;color:#087b9b}.dark-mode .user-control-menu{border-color:#315765;background:rgba(16,43,57,.94)}.dark-mode .user-control-menu button,.dark-mode .user-control-menu a{color:#d9f2f6}.dark-mode .user-control-menu button:hover,.dark-mode .user-control-menu a:hover{background:#1b5260;color:#a7f1ed}
+      .user-control{position:relative}.user-chip{cursor:pointer;border:0;font:inherit;text-align:left}.user-control-menu{position:absolute;top:calc(100% + 9px);right:0;z-index:70;display:grid;min-width:212px;padding:7px;border:1px solid rgba(186,218,229,.84);border-radius:14px;background:rgba(252,255,255,.9);box-shadow:0 14px 30px rgba(12,73,94,.16);backdrop-filter:blur(14px);opacity:0;visibility:hidden;transform:translateY(-7px) scale(.97);transition:opacity .18s ease,transform .18s ease,visibility .18s}.user-control.open .user-control-menu{opacity:1;visibility:visible;transform:none}.user-control-menu form{margin:0}.user-control-menu button,.user-control-menu a{display:flex;align-items:center;gap:9px;width:100%;padding:10px 11px;border:0;border-radius:9px;background:transparent;color:#24505f;font:700 12px inherit;text-align:left;text-decoration:none;cursor:pointer}.user-control-menu button:hover,.user-control-menu a:hover{background:#e8f6f8;color:#087b9b}.user-menu-icon{display:grid;place-items:center;flex:0 0 22px;width:22px;height:22px;border-radius:7px;font-size:13px;line-height:1}.user-menu-icon.admin{background:#e8e8ff;color:#5f57c8}.user-menu-icon.erp{background:#e5f5ff;color:#1475a1}.user-menu-icon.plan{background:#fff1d8;color:#bd7b18}.user-menu-icon.company{background:#e1f7ee;color:#18845c}.user-menu-icon.logout{background:#ffe5e7;color:#c54555}.dark-mode .user-control-menu{border-color:#315765;background:rgba(16,43,57,.94)}.dark-mode .user-control-menu button,.dark-mode .user-control-menu a{color:#d9f2f6}.dark-mode .user-control-menu button:hover,.dark-mode .user-control-menu a:hover{background:#1b5260;color:#a7f1ed}.dark-mode .user-menu-icon{filter:saturate(1.2) brightness(1.1)}
       @media(max-width:900px){
         aside{display:flex!important;flex-direction:column!important;align-items:stretch!important;height:100vh!important;padding:28px 18px!important}
         aside .brand{display:flex!important;align-items:center!important;white-space:nowrap!important;padding:0 10px 25px!important}
@@ -86,7 +135,8 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!document.startViewTransition || reducedMotion) { completeThemeChange(dark); window.setTimeout(finish, 260); return; }
       document.startViewTransition(() => completeThemeChange(dark)).finished.finally(finish);
     });
-    tools.append(install, theme); pageHeader.append(tools); updateThemeIcon();
+    const notifications = document.createElement('a'); notifications.className = 'notification-bell'; notifications.href = '/notifications'; notifications.hidden = true; notifications.setAttribute('aria-label', 'Notifications');
+    tools.append(install, notifications, theme); pageHeader.append(tools); updateThemeIcon();
     // Keep page-level import actions beside the account controls, before theme
     // and user details, without moving any upload forms themselves.
     [...pageHeader.querySelectorAll('a')].filter(link => /\bimport\b/i.test(link.textContent)).forEach(link => {
@@ -94,12 +144,19 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     fetch('/current-user.json').then(response => response.ok ? response.json() : null).then(user => {
       if (!user) return;
+      const administratorMode = document.body.classList.contains('administrator-mode');
+      const visibleNotificationCount = administratorMode ? (user.admin_notification_count || 0) : (user.notification_count || 0);
+      const notificationsUrl = administratorMode ? '/admin/notifications' : '/notifications';
+      notifications.hidden = false;
+      notifications.href = notificationsUrl;
+      notifications.innerHTML = `<svg aria-hidden="true" viewBox="0 0 24 24" focusable="false"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>${visibleNotificationCount ? `<em>${visibleNotificationCount > 99 ? '99+' : visibleNotificationCount}</em>` : ''}`;
+      notifications.title = administratorMode ? 'Administrator notifications' : (user.subscription_status === 'Expired' ? 'Subscription expired — choose a plan' : `${user.subscription_plan} ends ${user.subscription_ends_at}`);
       const control = document.createElement('div'); control.className = 'user-control';
       const chip = document.createElement('button'); chip.type = 'button'; chip.className = 'user-chip'; chip.setAttribute('aria-expanded', 'false');
       const initial = String(user.name || 'U').trim().charAt(0).toUpperCase();
       chip.innerHTML = `<span>${initial}</span><div><b>${user.name}</b><small>${user.role}</small></div>`;
       const menu = document.createElement('div'); menu.className = 'user-control-menu';
-      menu.innerHTML = `${user.has_active_company ? '<form method="post" action="/company/logout"><button type="submit">Log out of company</button></form>' : ''}<a href="/logout">Log out of ERP</a>`;
+      menu.innerHTML = `${user.is_admin && !administratorMode ? '<a href="/admin/users"><span class="user-menu-icon admin">◆</span>Administrator mode</a>' : ''}${administratorMode ? '<a href="/companies"><span class="user-menu-icon erp">⌂</span>Return to ERP mode</a>' : ''}<a href="/subscription"><span class="user-menu-icon plan">◇</span>Subscription</a>${user.has_active_company && !administratorMode ? '<form method="post" action="/company/logout"><button type="submit"><span class="user-menu-icon company">⇥</span>Log out of company</button></form>' : ''}<a href="/logout"><span class="user-menu-icon logout">↪</span>Log out of ERP</a>`;
       chip.addEventListener('click', event => { event.stopPropagation(); const open = control.classList.toggle('open'); chip.setAttribute('aria-expanded', String(open)); });
       document.addEventListener('click', () => { control.classList.remove('open'); chip.setAttribute('aria-expanded', 'false'); });
       control.append(chip, menu); tools.append(control);
@@ -116,7 +173,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // The navigation is intentionally created here so it stays available on every
   // page without duplicating controls in individual templates.
   const sidebar = document.querySelector('aside');
-  if (sidebar) {
+  if (sidebar && !document.body.classList.contains('administrator-mode')) {
     sidebar.querySelectorAll('nav a').forEach(link => {
       if (new URL(link.href, location.origin).pathname === location.pathname) link.classList.add('active');
       if (new URL(link.href, location.origin).pathname === '/accounts') link.textContent = 'Chart of Accounts';
@@ -127,18 +184,57 @@ document.addEventListener('DOMContentLoaded', () => {
       if (location.pathname === '/accounts-workspace') accountsLink.classList.add('active');
       chartLink.after(accountsLink);
     }
-    const menuButton = document.createElement('button');
-    menuButton.type = 'button'; menuButton.className = 'menu-toggle';
-    menuButton.setAttribute('aria-label', 'Open navigation menu'); menuButton.setAttribute('aria-expanded', 'false');
-    menuButton.innerHTML = '<i></i><i></i><i></i>';
+    sidebar.querySelectorAll('nav a').forEach(link => { link.dataset.navLabel = link.textContent.trim(); });
+    let hoverLabel = document.querySelector('.sidebar-hover-label');
+    if (!hoverLabel) {
+      hoverLabel = document.createElement('div');
+      hoverLabel.className = 'sidebar-hover-label';
+      hoverLabel.setAttribute('aria-hidden', 'true');
+      document.body.append(hoverLabel);
+    }
+    const showHoverLabel = link => {
+      if (document.body.classList.contains('menu-open')) return;
+      const rect = link.getBoundingClientRect();
+      hoverLabel.textContent = link.dataset.navLabel || link.textContent.trim();
+      hoverLabel.style.top = `${Math.round(rect.top + rect.height / 2)}px`;
+      hoverLabel.classList.add('visible');
+    };
+    const hideHoverLabel = () => hoverLabel.classList.remove('visible');
+    sidebar.querySelectorAll('nav a').forEach(link => {
+      link.addEventListener('mouseenter', () => showHoverLabel(link));
+      link.addEventListener('mouseleave', hideHoverLabel);
+      link.addEventListener('focus', () => showHoverLabel(link));
+      link.addEventListener('blur', hideHoverLabel);
+    });
     const overlay = document.createElement('div'); overlay.className = 'menu-overlay'; overlay.setAttribute('aria-hidden', 'true');
-    document.body.insertBefore(menuButton, sidebar); document.body.append(overlay);
+    const brandToggle = sidebar.querySelector('.brand');
+    let railToggle = sidebar.querySelector('.sidebar-rail-toggle');
+    if (!railToggle) {
+      railToggle = document.createElement('button');
+      railToggle.type = 'button'; railToggle.className = 'sidebar-rail-toggle';
+      railToggle.innerHTML = '<span aria-hidden="true">›</span>';
+      sidebar.append(railToggle);
+    }
+    document.body.append(overlay);
     const setMenu = open => {
       document.body.classList.toggle('menu-open', open);
-      menuButton.setAttribute('aria-expanded', String(open));
-      menuButton.setAttribute('aria-label', open ? 'Close navigation menu' : 'Open navigation menu');
+      hideHoverLabel();
+      if (brandToggle) {
+        brandToggle.setAttribute('aria-expanded', String(open));
+        brandToggle.setAttribute('aria-label', open ? 'Collapse navigation menu' : 'Expand navigation menu');
+      }
+      if (railToggle) {
+        railToggle.setAttribute('aria-expanded', String(open));
+        railToggle.setAttribute('aria-label', open ? 'Collapse navigation menu' : 'Expand navigation menu');
+      }
     };
-    menuButton.addEventListener('click', () => setMenu(!document.body.classList.contains('menu-open')));
+    if (brandToggle) {
+      brandToggle.setAttribute('role', 'button');
+      brandToggle.setAttribute('aria-expanded', 'false');
+      brandToggle.addEventListener('click', event => { event.preventDefault(); setMenu(!document.body.classList.contains('menu-open')); });
+      brandToggle.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setMenu(!document.body.classList.contains('menu-open')); } });
+    }
+    railToggle?.addEventListener('click', () => setMenu(!document.body.classList.contains('menu-open')));
     overlay.addEventListener('click', () => setMenu(false));
     document.addEventListener('keydown', event => { if (event.key === 'Escape') setMenu(false); });
   }
@@ -149,7 +245,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const chart = window.Chart?.getChart(document.getElementById('loan-chart'));
     const chartIndex = chart?.data.labels.findIndex(label => String(label) === installment);
     if (chart && chartIndex > 0) {
-      chart.data.datasets[0].backgroundColor = chart.data.datasets[0].data.map((_, index) => index === chartIndex ? '#00a99d' : '#287c9a');
+      const primary = paletteValue('--theme-primary', '#287c9a');
+      const secondary = paletteValue('--theme-secondary', '#00a99d');
+      chart.data.datasets[0].backgroundColor = chart.data.datasets[0].data.map((_, index) => index === chartIndex ? secondary : primary);
       chart.data.datasets[1].backgroundColor = chart.data.datasets[1].data.map((_, index) => index === chartIndex ? '#8cf0e5' : '#f0a14a');
       chart.data.datasets[2].pointRadius = chart.data.datasets[2].data.map((_, index) => index === chartIndex ? 8 : 4);
       chart.update();
@@ -410,7 +508,7 @@ visibleDateNodes.forEach((node) => {
   const analysisCanvas = document.querySelector('#analysis-tag-chart');
   if (cashflowCanvas && analysisCanvas) {
     const cashflowChart = window.Chart?.getChart(cashflowCanvas);
-    if (cashflowChart) { const values = cashflowChart.data.datasets[0].data; cashflowChart.data.datasets[0].backgroundColor = ['#1aa36f', '#f0a23a', Number(values[2]) < 0 ? '#c73745' : '#007b9a']; cashflowChart.update(); }
+    if (cashflowChart) { const values = cashflowChart.data.datasets[0].data; cashflowChart.data.datasets[0].backgroundColor = ['#1aa36f', '#f0a23a', Number(values[2]) < 0 ? '#c73745' : paletteValue('--theme-primary', '#007b9a')]; cashflowChart.update(); }
     const analysisPanel = analysisCanvas.closest('.panel'); const analysisGrid = cashflowCanvas.closest('.analysis-grid');
     if (analysisPanel && analysisGrid) { analysisPanel.classList.add('analysis-breakdown-panel'); analysisGrid.append(analysisPanel); setTimeout(() => { const chart = window.Chart?.getChart(analysisCanvas); chart?.resize(); chart?.update(); }, 0); }
   }
@@ -423,6 +521,13 @@ visibleDateNodes.forEach((node) => {
   const billScanTrigger = document.querySelector('#scan-bill-trigger');
   const billScanFile = document.querySelector('#scan-bill-file');
   const billScanStatus = document.querySelector('#scan-bill-status');
+  const billScanPanel = document.querySelector('#bill-scan');
+  const billScanClose = document.querySelector('#scan-bill-close');
+  const newJournal = document.querySelector('#new-journal');
+  newJournal?.addEventListener('click', () => {
+    // Reloading gives a completely clean journal, including a new suggested document number.
+    window.location.assign('/transactions');
+  });
   if (billScanTrigger && billScanFile && billScanStatus) {
     const applyBillDraft = (draft) => {
       const form = document.querySelector('#transaction-form');
@@ -459,7 +564,12 @@ visibleDateNodes.forEach((node) => {
       const response = await fetch('/transactions/parse-bill', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ocr_text: text.join('\n')})});
       const draft = await response.json(); if (!response.ok) throw new Error(draft.error || 'The bill could not be scanned.'); return draft;
     };
-    billScanTrigger.addEventListener('click', () => billScanFile.click());
+    billScanClose?.addEventListener('click', () => { billScanPanel.hidden = true; billScanStatus.textContent = ''; billScanFile.value = ''; });
+    billScanTrigger.addEventListener('click', () => {
+      billScanPanel.hidden = false;
+      billScanStatus.textContent = 'Choose a bill image or PDF to scan.';
+      billScanFile.click();
+    });
     billScanFile.addEventListener('change', async () => {
       const bill = billScanFile.files?.[0]; if (!bill) return;
       billScanStatus.textContent = 'Reading bill details…'; billScanTrigger.disabled = true;

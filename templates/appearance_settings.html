@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block heading %}Appearance &amp; colours{% endblock %}
+{% block header_action %}<a class="secondary" href="{{ url_for('workspace_settings') }}">Back to settings</a>{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='appearance.css') }}">
+<section class="appearance-hero panel"><div><span class="appearance-kicker">YOUR WORKSPACE STYLE</span><h2>Colour palettes</h2><p>Choose one palette for light mode and another for dark mode. Your selections are saved separately for this company.</p></div><div class="appearance-orb" aria-hidden="true"></div></section>
+
+<form method="post" class="appearance-form">
+  <section class="appearance-section panel">
+    <div class="appearance-section-title"><div><span class="mode-icon light">&#9788;</span><h2>Light mode palette</h2><p>Used when your workspace is in light mode.</p></div><span class="mode-label">Light</span></div>
+    <div class="palette-grid">{% for key,info in palettes.light.items() %}<label class="palette-card light-card {% if selected.light_palette == key %}selected{% endif %}"><input type="radio" name="light_palette" value="{{ key }}" {% if selected.light_palette == key %}checked{% endif %}><span class="palette-preview" style="--tone-one:{{ info[1] }};--tone-two:{{ info[2] }}"><i></i><i></i><i></i></span><b>{{ info[0] }}</b><small>{{ 'Current light palette' if selected.light_palette == key else 'Select palette' }}</small><em>&#10003;</em></label>{% endfor %}</div>
+  </section>
+
+  <section class="appearance-section panel">
+    <div class="appearance-section-title"><div><span class="mode-icon dark">&#9790;</span><h2>Dark mode palette</h2><p>Used when your workspace is in dark mode.</p></div><span class="mode-label dark-label">Dark</span></div>
+    <div class="palette-grid">{% for key,info in palettes.dark.items() %}<label class="palette-card dark-card {% if selected.dark_palette == key %}selected{% endif %}"><input type="radio" name="dark_palette" value="{{ key }}" {% if selected.dark_palette == key %}checked{% endif %}><span class="palette-preview" style="--tone-one:{{ info[1] }};--tone-two:{{ info[2] }}"><i></i><i></i><i></i></span><b>{{ info[0] }}</b><small>{{ 'Current dark palette' if selected.dark_palette == key else 'Select palette' }}</small><em>&#10003;</em></label>{% endfor %}</div>
+  </section>
+
+  <div class="appearance-actions"><a class="secondary" href="{{ url_for('workspace_settings') }}">Cancel</a><button class="primary">Save colour palettes</button></div>
+</form>
+<script>document.querySelectorAll('.palette-card input').forEach(input=>input.addEventListener('change',()=>{document.querySelectorAll(`.palette-card.${input.closest('.appearance-section').querySelector('.mode-label').classList.contains('dark-label')?'dark-card':'light-card'}`).forEach(card=>card.classList.toggle('selected',card.contains(input)&&input.checked))}))</script>
+{% endblock %}

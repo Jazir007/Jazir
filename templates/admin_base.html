@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#007b9a"><title>{% block title %}Administrator mode · Zedjer Books{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static',filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static',filename='subscription.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static',filename='admin-subscription.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static',filename='notification-center.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static',filename='notification-bell.css') }}">
+  <script defer src="{{ url_for('static',filename='app.js') }}"></script>
+</head>
+<body class="administrator-mode">
+  <nav class="admin-mode-topnav" aria-label="Administrator navigation">
+    <a class="brand" href="{{ url_for('admin_users') }}"><span>Logo</span>Zedjer Books <small>Administrator mode</small></a>
+    <div class="admin-mode-links"><a href="{{ url_for('admin_users') }}">Overview</a><a href="{{ url_for('admin_users') }}#subscription-controls">Plan controls</a><a href="{{ url_for('admin_users') }}#users">Users</a><a href="{{ url_for('admin_users') }}#revenue">Revenue</a><a href="{{ url_for('admin_notifications') }}">Notifications</a></div>
+    <a class="admin-return" href="{{ url_for('companies_dashboard') }}">Return to ERP</a>
+  </nav>
+  <main>
+    <header><div><p class="eyebrow">ADMINISTRATOR MODE</p><h1>{% block heading %}{% endblock %}</h1></div>{% block header_action %}{% endblock %}</header>
+    {% with messages=get_flashed_messages(with_categories=true) %}{% for type,message in messages %}<div class="flash {{ type }}">{{ message }}</div>{% endfor %}{% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

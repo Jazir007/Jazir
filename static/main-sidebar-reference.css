@@ -1,0 +1,63 @@
+/* Clean compact navigation rail with contextual floating labels. */
+@media(min-width:901px){body:not(.settings-immersive):not(.administrator-mode)>aside{width:58px!important;padding:18px 8px!important;overflow:visible!important;border:0!important;border-radius:0 22px 22px 0;background:linear-gradient(180deg,rgba(4,26,38,.97),rgba(2,52,68,.95))!important;box-shadow:8px 0 25px rgba(0,29,42,.16)!important}body:not(.settings-immersive):not(.administrator-mode)>aside .brand{position:relative;width:42px!important;height:44px!important;margin:0 auto 21px!important;padding:7px 0!important;border-bottom:1px solid rgba(218,255,252,.28)!important;border-radius:0!important}body:not(.settings-immersive):not(.administrator-mode)>aside .brand span:before{width:28px!important;height:28px!important;border:1px solid rgba(231,255,253,.7)!important;border-radius:10px!important;background:rgba(255,255,255,.04)!important}body:not(.settings-immersive):not(.administrator-mode)>aside nav{gap:8px!important}body:not(.settings-immersive):not(.administrator-mode)>aside nav a{position:relative;width:42px!important;height:42px!important;margin:0 auto!important;border-radius:10px!important}body:not(.settings-immersive):not(.administrator-mode)>aside nav a:before{width:26px!important;height:26px!important;flex-basis:26px!important;color:rgba(245,255,255,.9)!important;font-size:14px!important}body:not(.settings-immersive):not(.administrator-mode)>aside nav a:after{content:attr(data-nav-label);position:absolute;z-index:70;left:53px;top:50%;min-width:max-content;padding:9px 14px;border-radius:11px;background:linear-gradient(110deg,#087b9b,#10a095);box-shadow:0 9px 18px rgba(0,43,58,.23);color:#fff;font-size:12px;font-weight:800;line-height:1;opacity:0;pointer-events:none;transform:translate(8px,-50%);transition:opacity .16s ease,transform .16s ease}body:not(.settings-immersive):not(.administrator-mode)>aside nav a:hover:after,body:not(.settings-immersive):not(.administrator-mode)>aside nav a:focus-visible:after{opacity:1;transform:translate(0,-50%)}body:not(.settings-immersive):not(.administrator-mode)>aside nav a:hover:before{color:#bafff5!important;text-shadow:0 0 10px rgba(146,255,243,.4)}body:not(.settings-immersive):not(.administrator-mode)>aside nav a.active:before{color:#70e6dc!important;text-shadow:none!important}body:not(.settings-immersive):not(.administrator-mode).menu-open>aside{width:240px!important;padding:22px 13px!important;border-radius:0 22px 22px 0!important;background:linear-gradient(160deg,rgba(2,41,58,.98),rgba(1,91,105,.96))!important}body:not(.settings-immersive):not(.administrator-mode).menu-open>aside .brand{width:100%!important;height:auto!important;margin-bottom:22px!important;padding:0 10px 20px!important;border-bottom:1px solid rgba(218,255,252,.2)!important}body:not(.settings-immersive):not(.administrator-mode).menu-open>aside nav{gap:5px!important}body:not(.settings-immersive):not(.administrator-mode).menu-open>aside nav a{width:100%!important;height:43px!important;border-radius:10px!important}body:not(.settings-immersive):not(.administrator-mode).menu-open>aside nav a:after{display:none!important}body:not(.settings-immersive):not(.administrator-mode).menu-open>aside nav a.active{background:rgba(188,255,248,.1)!important}}
+@media(min-width:901px){body:not(.settings-immersive):not(.administrator-mode)>main{transition:margin-left .22s cubic-bezier(.2,.8,.2,1),width .22s cubic-bezier(.2,.8,.2,1),padding .22s cubic-bezier(.2,.8,.2,1)!important}body:not(.settings-immersive):not(.administrator-mode).menu-open>main{margin-left:240px!important;width:calc(100% - 240px)!important;max-width:none!important;padding-left:28px!important;padding-right:28px!important}}
+/* Edge control mirrors the compact rail pattern: it expands the menu without covering the workspace. */
+@media(min-width:901px){
+body:not(.settings-immersive):not(.administrator-mode)>aside .sidebar-rail-toggle{position:absolute;z-index:90;top:116px;right:-17px;display:grid;place-items:center;width:32px;height:32px;padding:0;border:1px solid rgba(217,255,251,.62);border-radius:50%;background:rgba(250,255,255,.96);box-shadow:0 7px 17px rgba(0,44,58,.22);color:#075a72;cursor:pointer;transition:transform .2s ease,background .2s ease,color .2s ease}
+body:not(.settings-immersive):not(.administrator-mode)>aside .sidebar-rail-toggle span{font:700 28px/18px Arial,sans-serif;transform:translateY(-1px);transition:transform .2s ease}
+body:not(.settings-immersive):not(.administrator-mode)>aside .sidebar-rail-toggle:hover{background:#e6fffb;color:#008b92;transform:scale(1.08)}
+body:not(.settings-immersive):not(.administrator-mode).menu-open>aside .sidebar-rail-toggle{right:-17px}
+body:not(.settings-immersive):not(.administrator-mode).menu-open>aside .sidebar-rail-toggle span{transform:translateY(-1px) rotate(180deg)}
+body:not(.settings-immersive):not(.administrator-mode)>aside nav a:after{left:51px!important}
+}
+/* Final compact rail proportions: a flat square edge, a single real logo mark, and larger clear icons. */
+@media(min-width:901px){
+body:not(.settings-immersive):not(.administrator-mode)>aside{width:48px!important;padding:10px 4px!important;border-radius:0!important;gap:0!important;overflow:visible!important}
+body:not(.settings-immersive):not(.administrator-mode)>aside .brand{width:40px!important;height:38px!important;margin:0 auto 10px!important;padding:4px 0!important;border:0!important;border-radius:0!important;overflow:hidden!important}
+body:not(.settings-immersive):not(.administrator-mode)>aside .brand span{width:32px!important;height:32px!important;flex-basis:32px!important;background-size:contain!important}
+body:not(.settings-immersive):not(.administrator-mode)>aside .brand span:before{content:none!important;display:none!important}
+body:not(.settings-immersive):not(.administrator-mode)>aside nav{gap:0!important;margin:0!important}
+body:not(.settings-immersive):not(.administrator-mode)>aside nav a{width:40px!important;height:45px!important;margin:0 auto!important;padding:6px!important;border:0!important;border-radius:0!important}
+body:not(.settings-immersive):not(.administrator-mode)>aside nav a:before{width:30px!important;height:30px!important;flex-basis:30px!important;font-size:17px!important}
+body:not(.settings-immersive):not(.administrator-mode)>aside nav a:hover,body:not(.settings-immersive):not(.administrator-mode)>aside nav a.active{border-radius:0!important;background:rgba(225,255,251,.08)!important}
+body:not(.settings-immersive):not(.administrator-mode)>aside .sidebar-rail-toggle{top:63px;right:-15px;width:29px;height:29px}
+body:not(.settings-immersive):not(.administrator-mode)>aside .sidebar-rail-toggle span{font-size:25px}
+body:not(.settings-immersive):not(.administrator-mode)>main{padding-left:62px!important}
+body:not(.settings-immersive):not(.administrator-mode).menu-open>aside{width:220px!important;padding:16px 10px!important;border-radius:0!important}
+body:not(.settings-immersive):not(.administrator-mode).menu-open>aside .brand{width:100%!important;height:42px!important;margin-bottom:14px!important;padding:4px 8px!important}
+body:not(.settings-immersive):not(.administrator-mode).menu-open>aside .brand{display:flex!important;align-items:center!important;gap:7px!important;white-space:nowrap!important;font-size:19px!important;line-height:1!important;letter-spacing:-.5px!important}
+body:not(.settings-immersive):not(.administrator-mode).menu-open>aside .brand span{width:30px!important;height:30px!important;flex:0 0 30px!important}
+body:not(.settings-immersive):not(.administrator-mode).menu-open>aside nav{gap:1px!important}
+body:not(.settings-immersive):not(.administrator-mode).menu-open>aside nav a{height:42px!important;border-radius:0!important}
+body:not(.settings-immersive):not(.administrator-mode).menu-open>main{margin-left:220px!important;width:calc(100% - 220px)!important;padding-left:26px!important;padding-right:26px!important}
+}
+/* Floating labels are rendered at document level so the workspace can never hide them. */
+.sidebar-hover-label{position:fixed;z-index:9999;left:56px;display:block;min-width:max-content;padding:10px 15px;border-radius:10px;background:linear-gradient(105deg,#087d98,#10a49a);box-shadow:0 10px 22px rgba(0,44,58,.28);color:#fff;font:800 12px/1 'DM Sans',sans-serif;opacity:0;pointer-events:none;transform:translate(8px,-50%);transition:opacity .12s ease,transform .12s ease}
+.sidebar-hover-label.visible{opacity:1;transform:translate(0,-50%)}
+@media(min-width:901px){
+body:not(.settings-immersive):not(.administrator-mode)>aside,
+body:not(.settings-immersive):not(.administrator-mode)>aside:hover,
+body:not(.settings-immersive):not(.administrator-mode)>aside:focus-within{width:48px!important;transform:none!important;transition:none!important}
+body:not(.settings-immersive):not(.administrator-mode)>aside:hover .brand,
+body:not(.settings-immersive):not(.administrator-mode)>aside:focus-within .brand{width:40px!important;font-size:0!important;padding:4px 0!important}
+body:not(.settings-immersive):not(.administrator-mode)>aside:hover nav a,
+body:not(.settings-immersive):not(.administrator-mode)>aside:focus-within nav a{width:40px!important;font-size:0!important;padding:6px!important}
+body:not(.settings-immersive):not(.administrator-mode)>aside nav a:hover{transform:none!important}
+body:not(.settings-immersive):not(.administrator-mode)>aside nav a:after{display:none!important}
+}
+@media(max-width:900px){.sidebar-hover-label{display:none!important}}
+/* Expanded mode must always win over the compact hover lock. */
+@media(min-width:901px){
+body:not(.settings-immersive):not(.administrator-mode).menu-open>aside,
+body:not(.settings-immersive):not(.administrator-mode).menu-open>aside:hover,
+body:not(.settings-immersive):not(.administrator-mode).menu-open>aside:focus-within{width:220px!important;padding:16px 10px!important;transform:none!important;transition:width .2s cubic-bezier(.2,.8,.2,1)!important}
+body:not(.settings-immersive):not(.administrator-mode).menu-open>aside .brand,
+body:not(.settings-immersive):not(.administrator-mode).menu-open>aside:hover .brand{width:100%!important;height:42px!important;padding:4px 8px!important;font-size:19px!important}
+body:not(.settings-immersive):not(.administrator-mode).menu-open>aside nav a,
+body:not(.settings-immersive):not(.administrator-mode).menu-open>aside:hover nav a{width:100%!important;height:42px!important;padding:10px 12px!important;font-size:15px!important}
+body:not(.settings-immersive):not(.administrator-mode).menu-open>aside nav a:before{margin-right:10px!important}
+body:not(.settings-immersive):not(.administrator-mode)>aside nav a[href="/reports"]:before{content:''!important;font-size:0!important;background:transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23eaffff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 3h9l5 5v13H5z'/%3E%3Cpath d='M14 3v5h5'/%3E%3Cpath d='m7.5 16 3-3 2.4 2.4 3.7-4'/%3E%3Ccircle cx='7.5' cy='16' r='.65' fill='%23eaffff'/%3E%3Ccircle cx='10.5' cy='13' r='.65' fill='%23eaffff'/%3E%3Ccircle cx='12.9' cy='15.4' r='.65' fill='%23eaffff'/%3E%3Ccircle cx='16.6' cy='11.4' r='.65' fill='%23eaffff'/%3E%3C/svg%3E") center/22px 22px no-repeat!important}
+body:not(.settings-immersive):not(.administrator-mode).menu-open{overflow-x:hidden!important}
+body:not(.settings-immersive):not(.administrator-mode).menu-open>main{margin-right:0!important;width:calc(100vw - 220px)!important;min-height:100vh!important;background:#f3f9fb!important}
+body.dark-mode:not(.settings-immersive):not(.administrator-mode).menu-open>main{background:#071a31!important}
+}

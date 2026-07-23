@@ -1,8 +1,77 @@
 {% extends 'base.html' %}
-{% block heading %}Workspace settings{% endblock %}
-{% block header_action %}<a class="secondary" href="{{ url_for('help_manual') }}">Help &amp; user manual</a>{% endblock %}
+{% block heading %}Account settings{% endblock %}
+{% block header_action %}<div class="settings-header-actions"><a class="secondary" href="{{ url_for('analysis') }}">⌂ Home</a><a class="secondary" href="{{ url_for('help_manual') }}">? Help &amp; user manual</a></div>{% endblock %}
 {% block content %}
-<section class="panel"><h2>Feature controls</h2><p class="hint">Turn workspace features on or off for this company. Disabled items are removed from quick search and quick-access navigation; existing records stay safely stored.</p>
-  <form method="post" class="feature-settings">{% for key,name,description in features %}<label class="feature-toggle"><span><b>{{ name }}</b><small>{{ description }}</small></span><input type="checkbox" name="{{ key }}" {% if states.get(key) %}checked{% endif %}><i aria-hidden="true"></i></label>{% endfor %}<div class="actions"><a class="secondary" href="{{ url_for('analysis') }}">Cancel</a><button class="primary">Save settings</button></div></form>
-</section>
+<link rel="stylesheet" href="{{ url_for('static', filename='settings.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='settings-full-nav.css') }}">
+
+<section class="settings-intro full-settings-intro"><div class="settings-intro-icon" aria-hidden="true">&#9881;</div><div><h2>Settings</h2><p>Manage your system settings, personal preferences and company controls.</p></div></section>
+
+<div class="settings-layout full-settings-layout">
+  <aside class="settings-nav" aria-label="Settings navigation">
+    <p>General</p>
+    <a class="active" href="#profile">Profile</a>
+    <a href="{{ url_for('edit_company', company_id=active_company.id) }}">Company information</a>
+    <a href="#preferences">Preferences</a>
+    <a href="{{ url_for('appearance_settings') }}">Appearance &amp; colours</a>
+    <p>System</p>
+    <a href="{{ url_for('user_authorisations') }}">Users &amp; roles</a>
+    <a href="{{ url_for('user_authorisations') }}">Security</a>
+    <a href="{{ url_for('user_notifications') }}">Notifications</a>
+    <a href="{{ url_for('currencies') }}">Currencies &amp; rates</a>
+    <a href="{{ url_for('document_numbering', company_id=active_company.id) }}">Document numbering</a>
+    <p>Data</p>
+    <a href="{{ url_for('company_backup_restore') }}">Backup &amp; restore</a>
+    <a href="{{ url_for('workspace_search') }}">Import &amp; export</a>
+    <p>Other</p>
+    <a href="{{ url_for('activity_records') }}">Activity log</a>
+    <a href="{{ url_for('help_manual') }}">Help center</a>
+  </aside>
+
+  <div class="settings-content full-settings-content">
+    <form method="post" class="profile-settings-form">
+      <input type="hidden" name="form_type" value="profile">
+      <section class="settings-block" id="profile">
+        <div class="settings-section-heading"><div><h2>Profile settings</h2><p>Manage your personal information and account preferences.</p></div><button class="primary">Save changes</button></div>
+        <div class="settings-fields">
+          <label><span>Full name</span><input name="display_name" value="{{ profile.display_name if profile else '' }}" required></label>
+          <label><span>Email address</span><input name="email" type="email" value="{{ profile.email if profile else '' }}" required></label>
+          <label><span>Phone number</span><input name="phone" value="{{ profile.phone or '' if profile else '' }}" placeholder="Optional contact number"></label>
+          <div class="profile-photo"><span>{{ (profile.display_name or 'Z')[0]|upper if profile else 'Z' }}</span><div><b>Profile picture</b><small>Your account currently uses your initials.</small></div></div>
+        </div>
+      </section>
+
+      <section class="settings-block" id="preferences">
+        <div class="settings-section-heading"><div><h2>Preferences</h2><p>Customise your workspace defaults. Financial reports remain in DD-MM-YYYY format.</p></div></div>
+        <div class="preference-list">
+          <label><span><b>Language</b><small>Select your preferred workspace language.</small></span><select name="language"><option {% if not profile or (profile.preferred_language or 'English') == 'English' %}selected{% endif %}>English</option></select></label>
+          <label><span><b>Time zone</b><small>Use this for your activity time and user sign-in records.</small></span><select name="timezone"><option {% if not profile or (profile.preferred_timezone or 'Asia/Dubai') == 'Asia/Dubai' %}selected{% endif %}>Asia/Dubai</option><option {% if profile and profile.preferred_timezone == 'Asia/Kolkata' %}selected{% endif %}>Asia/Kolkata</option><option {% if profile and profile.preferred_timezone == 'Europe/London' %}selected{% endif %}>Europe/London</option></select></label>
+          <label><span><b>Date format</b><small>Your ERP standard date format.</small></span><select name="date_format"><option selected>DD-MM-YYYY</option></select></label>
+          <label><span><b>Time format</b><small>Choose how time is displayed in activity records.</small></span><select name="time_format"><option value="12-hour" {% if not profile or (profile.preferred_time_format or '12-hour') == '12-hour' %}selected{% endif %}>12-hour (AM/PM)</option><option value="24-hour" {% if profile and profile.preferred_time_format == '24-hour' %}selected{% endif %}>24-hour</option></select></label>
+          <label><span><b>Items per page</b><small>Choose the default number of list records.</small></span><select name="items_per_page">{% for count in ('10','25','50','100') %}<option {% if (profile.items_per_page or '10') == count %}selected{% endif %}>{{ count }}</option>{% endfor %}</select></label>
+        </div>
+        <div class="settings-bottom-actions"><button class="primary">Save changes</button></div>
+      </section>
+    </form>
+
+    <section class="settings-block" id="workspace-features">
+      <form method="post"><div class="settings-section-heading"><div><h2>Workspace features</h2><p>Choose which optional tools are available in this company. Turning a tool off never deletes data.</p></div><button class="primary">Save features</button></div><div class="settings-feature-list">{% for key,name,description in features %}<label class="settings-feature-row"><span class="settings-feature-icon">&#9670;</span><span class="settings-feature-copy"><b>{{ name }}</b><small>{{ description }}</small></span><span class="settings-toggle"><input type="checkbox" name="{{ key }}" {% if states.get(key) %}checked{% endif %}><i aria-hidden="true"></i></span></label>{% endfor %}</div><div class="settings-note"><b>Tip:</b> Disabled tools disappear from quick search and navigation, but their records stay protected.</div><div class="settings-bottom-actions"><button class="primary">Save features</button></div></form>
+    </section>
+  </div>
+</div>
+<style>
+@media(min-width:821px){
+  body.settings-immersive .full-settings-layout{display:grid!important;grid-template-columns:220px minmax(0,1fr)!important;gap:16px!important;width:100%!important;max-width:none!important;margin:0!important}
+  body.settings-immersive .settings-nav{position:static!important;inset:auto!important;z-index:auto!important;display:block!important;width:220px!important;height:auto!important;min-height:620px!important;margin:0!important;padding:15px 10px!important;transform:none!important;overflow-y:auto!important;overflow-x:hidden!important;background:rgba(255,255,255,.88)!important;border:1px solid #dcebef!important;border-radius:17px!important;box-shadow:0 10px 25px rgba(17,88,103,.05)!important}
+  body.settings-immersive .settings-nav p{display:block!important;height:auto!important;margin:10px 10px 7px!important;opacity:1!important;visibility:visible!important;overflow:visible!important;color:#78909b!important;white-space:normal!important}
+  body.settings-immersive .settings-nav p:not(:first-child){margin-top:21px!important}
+  body.settings-immersive .settings-nav a{position:static!important;display:block!important;width:100%!important;height:auto!important;margin:0!important;padding:10px 12px!important;opacity:1!important;visibility:visible!important;transform:none!important;border-left:3px solid transparent!important;border-radius:0!important;background:transparent!important;color:#46616d!important;font-size:13px!important;line-height:1.25!important;white-space:normal!important;overflow:visible!important}
+  body.settings-immersive .settings-nav a:before{display:none!important}
+  body.settings-immersive .settings-nav a.active{border-left-color:#0b9e98!important;background:linear-gradient(90deg,#e2f7f6,transparent)!important;color:#087d90!important}
+  body.settings-immersive .full-settings-content{grid-column:2!important;min-width:0!important}
+  body.settings-immersive .settings-header-actions{display:flex;gap:8px;align-items:center}
+  body.dark-mode.settings-immersive .settings-nav{background:#123640!important;border-color:#2b5662!important}
+  body.dark-mode.settings-immersive .settings-nav a{color:#c6dfe5!important}body.dark-mode.settings-immersive .settings-nav a.active{background:linear-gradient(90deg,#174e5a,transparent)!important;color:#91ebe5!important}
+}
+</style>
 {% endblock %}

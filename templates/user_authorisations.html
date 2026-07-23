@@ -1,29 +1,72 @@
 {% extends 'base.html' %}
 {% block heading %}User authorisations{% endblock %}
 {% block content %}
-<section class="panel">
-  <h2>User authorisation</h2>
-  <p class="hint">This is disabled by default. Keep it disabled while setting up users, then enable it when you want users to sign in before opening this company.</p>
-  <form method="post" action="{{ url_for('user_authorisation_setting') }}" class="actions">
-    <label class="check"><input type="checkbox" name="auth_enabled" {% if active_company.auth_enabled %}checked{% endif %}> Require user sign-in to open this company</label>
-    <button class="primary">Save setting</button>
-  </form>
+<link rel="stylesheet" href="{{ url_for('static', filename='permissions.css') }}">
+
+<section class="permissions-intro">
+  <div><span class="permissions-icon">&#9881;</span><div><h2>Administration</h2><p>Manage company users, roles and permissions.</p></div></div>
+  <a class="primary" id="add-user-top" href="#add-user">+ Add user</a>
 </section>
-<section class="panel">
-  <h2>User profile and access</h2>
-  <p class="hint">Create an Owner, Administrator, Accountant or Viewer login for this company. Add at least one active user with a password before enabling sign-in.</p>
-  <form method="post" class="form-grid" autocomplete="off">
-    <label>User name<input name="username" required autocomplete="off" autocapitalize="none" spellcheck="false"></label>
-    <label>Contact number<input name="contact_no"></label>
-    <label>Email address<input name="email" type="email"></label>
-    <label>Login password<input name="password" type="password" placeholder="Required for new user"></label>
-    <label>Access level<select name="role"><option>Owner</option><option>Administrator</option><option selected>Accountant</option><option>Viewer</option></select></label>
-    <label class="check"><input type="checkbox" name="active" checked>Active user</label>
-    <button class="primary">Save user</button>
-  </form>
+
+<nav class="permissions-tabs two-tabs" aria-label="Authorisation tabs">
+  <button type="button" data-tab="users">Users <span>{{ users|length }}</span></button>
+  <button type="button" data-tab="roles">Roles <span>{{ roles|length }}</span></button>
+</nav>
+
+<section data-panel="users">
+  <section class="panel permission-editor" id="add-user">
+    <div class="panel-title"><div><h2>Add user</h2><p class="hint">Create a company login and assign an access role.</p></div><a class="secondary" href="#users">Cancel</a></div>
+    <form method="post" class="form-grid permission-form" autocomplete="off">
+      <label>User name<input name="username" required autocomplete="off" autocapitalize="none" spellcheck="false"></label>
+      <label>Email address <small>Optional</small><input name="email" type="email"></label>
+      <label>Contact number<input name="contact_no"></label>
+      <label>Login password<input name="password" type="password" placeholder="Required for new user"></label>
+      <label>Role<select name="role">{% for role in roles if role.active %}<option {% if role.name == 'Accountant' %}selected{% endif %}>{{ role.name }}</option>{% endfor %}</select></label>
+      <label class="permission-active"><input type="checkbox" name="active" checked> Active user</label>
+      <div class="actions"><button class="primary">Save user</button></div>
+    </form>
+  </section>
+
+  <section class="panel permissions-overview" id="users">
+    <div class="panel-title"><div><h2>Users</h2><p class="hint">Search, filter and update access for each company user.</p></div></div>
+    <div class="user-filter-bar">
+      <label class="permissions-search"><span>&#8981;</span><input id="permissions-search" type="search" placeholder="Search users by name, email, or role"></label>
+      <select id="permissions-role-filter"><option value="">All roles</option>{% for role in roles %}<option value="{{ role.name }}">{{ role.name }}</option>{% endfor %}</select>
+      <select id="permissions-status-filter"><option value="">All status</option><option value="active">Active</option><option value="inactive">Inactive</option></select>
+    </div>
+    <div class="table-wrap"><table class="permissions-table user-table"><thead><tr><th>User</th><th>Role</th><th>Status</th><th>Last active</th><th>Password</th><th>Actions</th></tr></thead><tbody>
+      {% for user in users %}<tr data-user-row data-role="{{ user.role }}" data-status="{{ 'active' if user.active else 'inactive' }}" data-search="{{ (user.username ~ ' ' ~ (user.email or '') ~ ' ' ~ (user.contact_no or '') ~ ' ' ~ user.role)|lower }}">
+        <td><span class="user-avatar">{{ user.username[0]|upper }}</span><span class="user-name"><b>{{ user.username }}</b><small>{{ user.email or user.contact_no or 'No contact details' }}</small></span></td>
+        <td><span class="role-badge {{ user.role|lower|replace(' ', '-') }}">{{ user.role }}</span></td><td><span class="status-badge {{ 'active' if user.active else 'inactive' }}">{{ 'Active' if user.active else 'Inactive' }}</span></td>
+        <td>{{ user.last_active_at|datetimefmt }}</td><td>{% if user.password_hash %}<span class="login-status">Set</span>{% else %}<span class="password-missing">Not set</span>{% endif %}</td><td><a class="permission-edit permission-edit-icon" href="{{ url_for('edit_user_authorisation', user_id=user.id) }}" title="Edit {{ user.username }}" aria-label="Edit {{ user.username }}">&#9998;</a></td>
+      </tr>{% else %}<tr><td colspan="6" class="empty">No users added to this company yet.</td></tr>{% endfor %}
+    </tbody></table></div><p class="permissions-empty" hidden>No users match this filter.</p>
+  </section>
+
+  <section class="panel permissions-signin"><div><h2>Company sign-in</h2><p class="hint">Require company users to sign in before accessing this company.</p></div><form method="post" action="{{ url_for('user_authorisation_setting') }}"><input type="hidden" name="company_id" value="{{ active_company.id }}"><label class="permission-toggle"><input type="checkbox" name="auth_enabled" value="1" onchange="this.form.requestSubmit()" {% if active_company.auth_enabled %}checked{% endif %}><span></span>Require user sign-in</label><span class="signin-state {{ 'on' if active_company.auth_enabled else 'off' }}">{{ 'On' if active_company.auth_enabled else 'Off' }}</span><button class="secondary" type="submit">Save setting</button></form></section>
 </section>
-<section class="panel">
-  <h2>Configured users</h2>
-  <table><thead><tr><th>User</th><th>Contact</th><th>Email</th><th>Access level</th><th>Status</th>{% if is_owner %}<th>Password</th>{% endif %}<th></th></tr></thead><tbody>{% for user in users %}<tr><td><b>{{ user.username }}</b></td><td>{{ user.contact_no or '-' }}</td><td>{{ user.email or '-' }}</td><td>{{ user.role }}</td><td>{{ 'Active' if user.active else 'Inactive' }}</td>{% if is_owner %}<td>{% if user.password_hash %}<span class="tag">Password set</span>{% else %}<span class="hint">Not set</span>{% endif %}</td>{% endif %}<td><a class="secondary" href="{{ url_for('edit_user_authorisation', user_id=user.id) }}">Edit</a></td></tr>{% else %}<tr><td colspan="{{ 7 if is_owner else 6 }}" class="empty">No user logins configured yet.</td></tr>{% endfor %}</tbody></table>
+
+<section data-panel="roles" hidden>
+  <section class="panel permission-editor" id="add-role">
+    <div class="panel-title"><div><h2>Create role</h2><p class="hint">Create a role and select the actions this role is allowed to perform.</p></div><a class="secondary" href="#roles">Cancel</a></div>
+    <form method="post" action="{{ url_for('create_company_role') }}" class="form-grid role-editor-form">
+      <label>Role name<input name="name" maxlength="50" required placeholder="e.g. Finance manager"></label>
+      <label class="permission-active"><input type="checkbox" name="active" checked> Active role</label>
+      <label class="wide-field">Description<input name="description" placeholder="What is this role responsible for?"></label>
+      <fieldset class="permission-checklist wide-field"><legend>Permissions</legend>{% for key,label,description in permission_options %}<label><input type="checkbox" name="permissions" value="{{ key }}"><span><b>{{ label }}</b><small>{{ description }}</small></span></label>{% endfor %}</fieldset>
+      <div class="actions"><button class="primary">Create role</button></div>
+    </form>
+  </section>
+
+  <section class="panel permissions-overview" id="roles">
+    <div class="panel-title"><div><h2>Roles</h2><p class="hint">Control permissions available to each company role.</p></div><a class="secondary" href="#add-role">+ Create role</a></div>
+    <div class="table-wrap"><table class="permissions-table roles-table"><thead><tr><th>Role</th><th>Description</th><th>Users</th><th>Status</th><th>Permissions</th><th>Actions</th></tr></thead><tbody>{% for role in roles %}
+      {% set permissions = role.permissions|default('[]') %}<tr><td><b>{{ role.name }}</b></td><td>{{ role.description or 'No description added' }}</td><td>{{ role_counts.get(role.name, 0) }}</td><td><span class="status-badge {{ 'active' if role.active else 'inactive' }}">{{ 'Active' if role.active else 'Inactive' }}</span></td><td><span class="permission-count">Configured</span></td><td><a class="permission-edit" href="{{ url_for('edit_company_role', role_id=role.id) }}">Edit</a></td></tr>
+    {% else %}<tr><td colspan="6" class="empty">No roles created yet.</td></tr>{% endfor %}</tbody></table></div>
+  </section>
 </section>
+
+<script>
+(() => { const buttons=[...document.querySelectorAll('[data-tab]')], panels=[...document.querySelectorAll('[data-panel]')]; const params=new URLSearchParams(location.search); let tab=params.get('tab')==='roles'?'roles':'users'; const activate=next=>{tab=next; buttons.forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));panels.forEach(p=>p.hidden=p.dataset.panel!==tab);document.getElementById('add-user-top').hidden=tab==='roles';history.replaceState(null,'',location.pathname+(tab==='roles'?'?tab=roles':'')+location.hash)};buttons.forEach(b=>b.addEventListener('click',()=>activate(b.dataset.tab)));activate(tab);const search=document.querySelector('#permissions-search'),role=document.querySelector('#permissions-role-filter'),status=document.querySelector('#permissions-status-filter'),rows=[...document.querySelectorAll('[data-user-row]')],empty=document.querySelector('.permissions-empty');const filter=()=>{let n=0,term=(search.value||'').toLowerCase();rows.forEach(row=>{const show=(!term||row.dataset.search.includes(term))&&(!role.value||row.dataset.role===role.value)&&(!status.value||row.dataset.status===status.value);row.hidden=!show;if(show)n++});empty.hidden=Boolean(n)};[search,role,status].forEach(el=>el.addEventListener(el.tagName==='INPUT'?'input':'change',filter));})();
+</script>
 {% endblock %}
